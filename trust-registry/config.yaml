@@ -1,0 +1,13 @@
+SOVEREIGN_MODE: true
+LOCAL_LLM_URL: "http://localhost:11434/api/generate"
+LOCAL_MODEL: "llama3:70b-instruct"
+CLOUD_PROVIDER: "vertex_ai" # fallback
+CLOUD_REGION: "us-central1"
+
+JURY_SETTINGS:
+  SCRUTINY_LEVEL: 3
+  MIN_TRUST_SCORE: 0.70
+
+FEATURE_FLAGS:
+  SELF_HEALING: true
+  A2A_AUDIT: true

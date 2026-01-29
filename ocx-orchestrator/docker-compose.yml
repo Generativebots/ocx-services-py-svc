@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ocx
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./tenant_schema.sql:/docker-entrypoint-initdb.d/01_tenant_schema.sql
+      - ../activity-registry/schema.sql:/docker-entrypoint-initdb.d/02_activity_schema.sql
+      - ../evidence-vault/schema.sql:/docker-entrypoint-initdb.d/03_evidence_schema.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  orchestrator:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ocx
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      PROCESS_MINING_URL: http://process-mining:8001
+      ACTIVITY_REGISTRY_URL: http://activity-registry:8002
+      EVIDENCE_VAULT_URL: http://evidence-vault:8003
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  process-mining:
+    build: ../process-mining
+    ports:
+      - "8001:8001"
+    environment:
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
+    volumes:
+      - ${GOOGLE_APPLICATION_CREDENTIALS}:/app/credentials.json:ro
+    restart: unless-stopped
+
+  activity-registry:
+    build: ../activity-registry
+    ports:
+      - "8002:8002"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ocx
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  evidence-vault:
+    build: ../evidence-vault
+    ports:
+      - "8003:8003"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ocx
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  postgres_data:
+  es_data:
