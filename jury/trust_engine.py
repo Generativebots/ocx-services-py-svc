@@ -6,6 +6,7 @@ trust_level = (0.40 × audit) + (0.30 × reputation) + (0.20 × attestation) + (
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from typing import Dict, Optional, AsyncIterator
 import grpc

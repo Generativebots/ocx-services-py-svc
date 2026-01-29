@@ -1,9 +1,11 @@
+import os
 import uuid
 import json
 from typing import Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from ecdsa import VerifyingKey, NIST256p
 
 from jury import Jury
 from ledger import Ledger
@@ -144,9 +146,7 @@ async def evaluate_intent(req: EvaluationRequest, request: Request = None):
     )
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok", "service": "Trust Registry"}
+# Note: /health route is already defined above at line 57
 
 @app.get("/ledger/recent")
 def get_ledger_recent():
