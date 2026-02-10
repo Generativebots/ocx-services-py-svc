@@ -1,0 +1,70 @@
+# =============================================================================
+# OCX Python Services — .dockerignore
+# =============================================================================
+
+# Version control
+.git
+.gitignore
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Virtual environments (CRITICAL — venv can be 500MB+)
+venv/
+.venv/
+env/
+ENV/
+
+# Byte-compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+sdist/
+wheels/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+nosetests.xml
+
+# mypy / type checking
+.mypy_cache/
+.dmypy.json
+
+# Environment files
+.env
+.env.*
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Documentation
+*.md
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Gemini / AI tooling
+.gemini/
+.agent/
