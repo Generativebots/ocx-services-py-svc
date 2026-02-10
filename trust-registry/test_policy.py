@@ -3,7 +3,7 @@ import json
 
 BASE_URL = "http://localhost:8000"
 
-def run_test():
+def run_test() -> None:
     print("--- 🧪 Policy Engine Verification ---")
     
     # 1. Register a 3rd Party Agent

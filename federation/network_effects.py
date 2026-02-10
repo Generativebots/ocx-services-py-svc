@@ -12,6 +12,9 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from enum import Enum
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class NetworkPhase(Enum):
@@ -24,7 +27,7 @@ class NetworkPhase(Enum):
 class OCXRelationship:
     """Represents a relationship between two OCX instances"""
     
-    def __init__(self, instance1_id: str, instance2_id: str):
+    def __init__(self, instance1_id: str, instance2_id: str) -> None:
         self.relationship_id = str(uuid.uuid4())
         self.instance1_id = instance1_id
         self.instance2_id = instance2_id
@@ -37,7 +40,7 @@ class OCXRelationship:
         self.last_interaction_at: Optional[datetime] = None
         self.active = True
     
-    def record_interaction(self, success: bool, trust_level: float, value_created: float):
+    def record_interaction(self, success: bool, trust_level: float, value_created: float) -> None:
         """Record an interaction between the two instances"""
         self.total_interactions += 1
         if success:
@@ -73,7 +76,7 @@ class OCXRelationship:
 class NetworkMetrics:
     """Network-wide metrics"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.timestamp = datetime.utcnow()
         self.total_instances = 0
         self.active_instances = 0
@@ -115,7 +118,7 @@ class NetworkEffectsTracker:
     - Phase 3 (Global): 1,000+ instances → 499,500+ relationships
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.instances: Dict[str, Dict] = {}
         self.relationships: Dict[str, OCXRelationship] = {}
         self.metrics_history: List[NetworkMetrics] = []
@@ -172,7 +175,7 @@ class NetworkEffectsTracker:
         return relationship
     
     def record_interaction(self, instance1_id: str, instance2_id: str, 
-                          success: bool, trust_level: float, value_created: float = 0.0):
+                          success: bool, trust_level: float, value_created: float = 0.0) -> None:
         """Record an interaction between two instances"""
         relationship_key = self._get_relationship_key(instance1_id, instance2_id)
         relationship = self.relationships.get(relationship_key)
@@ -195,7 +198,7 @@ class NetworkEffectsTracker:
         """Get a consistent key for a relationship (order-independent)"""
         return f"{min(instance1_id, instance2_id)}:{max(instance1_id, instance2_id)}"
     
-    def _update_metrics(self):
+    def _update_metrics(self) -> None:
         """Update network metrics"""
         # Count active instances
         active_instances = sum(1 for inst in self.instances.values() if inst['active'])
@@ -247,7 +250,7 @@ class NetworkEffectsTracker:
         self.current_metrics.growth_rate = growth_rate
         self.current_metrics.current_phase = current_phase
     
-    def take_snapshot(self):
+    def take_snapshot(self) -> None:
         """Take a snapshot of current metrics"""
         # Create a copy of current metrics
         snapshot = NetworkMetrics()

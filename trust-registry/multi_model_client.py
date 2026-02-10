@@ -9,6 +9,8 @@ from enum import Enum
 from dataclasses import dataclass
 import requests
 import json
+import logging
+logger = logging.getLogger(__name__)
 
 
 class ModelProvider(str, Enum):
@@ -42,7 +44,7 @@ class MultiModelClient:
     4. Claude 4 (Anthropic)
     """
     
-    def __init__(self, models: List[ModelConfig]):
+    def __init__(self, models: List[ModelConfig]) -> None:
         self.models = sorted(models, key=lambda m: m.priority)
         self.current_model_index = 0
     
@@ -90,7 +92,7 @@ class MultiModelClient:
         from vllm_client import VLLMClient, VLLMConfig
         
         vllm_config = VLLMConfig(
-            base_url=config.base_url or "http://localhost:8000",
+            base_url=config.base_url or os.getenv("VLLM_BASE_URL", "http://localhost:8000"),
             model_name=config.model_name,
             temperature=config.temperature,
             max_tokens=config.max_tokens
@@ -164,6 +166,7 @@ SOP:
     ) -> List[Dict[str, Any]]:
         """Extract using Anthropic Claude 4"""
         import anthropic
+
         
         client = anthropic.Anthropic(
             api_key=config.api_key or os.getenv("ANTHROPIC_API_KEY")
@@ -236,7 +239,7 @@ if __name__ == "__main__":
         ModelConfig(
             provider=ModelProvider.VLLM,
             model_name="mistralai/Mistral-7B-Instruct-v0.2",
-            base_url="http://localhost:8000",
+            base_url=os.getenv("VLLM_BASE_URL", "http://localhost:8000"),
             priority=1
         ),
         # Add more models as fallback

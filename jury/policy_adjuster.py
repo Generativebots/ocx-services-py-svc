@@ -20,7 +20,7 @@ class PolicyAdjuster:
     change OCX's core enforcement decisions.
     """
     
-    def __init__(self, ape_engine=None, gateway_client=None):
+    def __init__(self, ape_engine=None, gateway_client=None) -> None:
         """
         Initialize policy adjuster.
         
@@ -151,7 +151,7 @@ class PolicyAdjuster:
         # In production, this would use the APE Engine's compiler
         return policy['logic']
     
-    def _update_gateway_lua(self, policy_id: str, new_logic: Dict):
+    def _update_gateway_lua(self, policy_id: str, new_logic: Dict) -> None:
         """
         Update Go-Gateway Lua script with new policy.
         

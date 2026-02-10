@@ -1,12 +1,23 @@
-FROM python:3.9-slim
+# Trust Registry — FastAPI service for Cloud Run
+FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir grpcio grpcio-tools protobuf
+# Install system dependencies for gRPC compilation
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
 
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source code
 COPY . .
 
-# Mock entrypoint since the python file might renamed or specific
-CMD ["python", "grpc_handshake.py"] 
-# Assuming grpc_handshake.py or similar is the main entry. 
-# Re-checking implementation plan... "HandshakeClient: Python Orchestrator... services/trust-registry/grpc_handshake.py"
+# Cloud Run injects PORT env var; default to 8000
+ENV PORT=8000
+ENV PYTHONUNBUFFERED=1
+
+# Run the FastAPI application via uvicorn
+CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT}

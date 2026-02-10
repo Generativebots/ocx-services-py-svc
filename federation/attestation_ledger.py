@@ -1,13 +1,13 @@
 """
-Trust Attestation Ledger - Database Backend Abstraction
+Trust Attestation Ledger - Database Backend (Supabase/PostgreSQL)
 
-Supports both PostgreSQL/Supabase (default) and Cloud Spanner (enterprise).
-Automatically switches based on client tier.
+All tiers use Supabase/PostgreSQL as the backend.
 """
 
 import hashlib
 import json
 import uuid
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 from abc import ABC, abstractmethod
@@ -16,7 +16,9 @@ from abc import ABC, abstractmethod
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config.database_config import is_spanner_enabled, get_db_config
+from config.database_config import get_db_config
+
+logger = logging.getLogger(__name__)
 
 
 class LedgerBackend(ABC):
@@ -41,7 +43,7 @@ class LedgerBackend(ABC):
 class PostgreSQLLedgerBackend(LedgerBackend):
     """PostgreSQL/Supabase backend for trust attestations"""
     
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict) -> None:
         """Initialize PostgreSQL backend"""
         try:
             import psycopg2
@@ -55,9 +57,9 @@ class PostgreSQLLedgerBackend(LedgerBackend):
                 password=config['password']
             )
             self.cursor = self.conn.cursor(cursor_factory=RealDictCursor)
-            print("✅ PostgreSQL ledger backend initialized")
+            logger.info("PostgreSQL ledger backend initialized")
         except ImportError:
-            print("⚠️  psycopg2 not installed, using mock backend")
+            logger.warning("psycopg2 not installed, using mock backend")
             self.conn = None
             self.cursor = None
     
@@ -136,127 +138,14 @@ class PostgreSQLLedgerBackend(LedgerBackend):
         return [dict(row) for row in self.cursor.fetchall()]
 
 
-class SpannerLedgerBackend(LedgerBackend):
-    """Cloud Spanner backend for trust attestations (enterprise)"""
-    
-    def __init__(self, config: Dict):
-        """Initialize Cloud Spanner backend"""
-        try:
-            from google.cloud import spanner
-            from google.cloud.spanner_v1 import param_types
-            
-            self.spanner_client = spanner.Client(project=config['project_id'])
-            self.instance = self.spanner_client.instance(config['instance_id'])
-            self.database = self.instance.database(config['database_id'])
-            self.spanner = spanner
-            print("✅ Cloud Spanner ledger backend initialized (ENTERPRISE)")
-        except ImportError:
-            print("⚠️  google-cloud-spanner not installed, falling back to PostgreSQL")
-            raise
-    
-    def publish_attestation(self, attestation_data: Dict) -> str:
-        """Publish attestation to Cloud Spanner"""
-        with self.database.batch() as batch:
-            batch.insert(
-                table='trust_attestations',
-                columns=['attestation_id', 'tenant_id', 'ocx_instance_id', 'agent_id',
-                        'audit_hash', 'trust_level', 'signature', 'expires_at',
-                        'timestamp', 'metadata'],
-                values=[[
-                    attestation_data['attestation_id'],
-                    attestation_data.get('tenant_id', 'default'),
-                    attestation_data['ocx_instance_id'],
-                    attestation_data['agent_id'],
-                    attestation_data['audit_hash'],
-                    attestation_data['trust_level'],
-                    attestation_data['signature'],
-                    attestation_data['expires_at'],
-                    self.spanner.COMMIT_TIMESTAMP,
-                    json.dumps(attestation_data.get('metadata', {}))
-                ]]
-            )
-        
-        return attestation_data['attestation_id']
-    
-    def verify_attestation(self, local_hash: str, remote_hash: str, agent_id: str) -> Dict:
-        """Verify attestation from Cloud Spanner"""
-        query = """
-            SELECT * FROM trust_attestations
-            WHERE audit_hash = @audit_hash AND agent_id = @agent_id
-            AND expires_at > CURRENT_TIMESTAMP()
-            ORDER BY timestamp DESC
-            LIMIT 1
-        """
-        
-        with self.database.snapshot() as snapshot:
-            results = snapshot.execute_sql(
-                query,
-                params={'audit_hash': remote_hash, 'agent_id': agent_id},
-                param_types={
-                    'audit_hash': self.spanner.param_types.STRING,
-                    'agent_id': self.spanner.param_types.STRING
-                }
-            )
-            
-            for row in results:
-                return {
-                    'verified': True,
-                    'trust_level': row[5],  # trust_level column
-                    'timestamp': row[8],     # timestamp column
-                    'ocx_instance_id': row[2]  # ocx_instance_id column
-                }
-        
-        return {'verified': False}
-    
-    def query_attestations(self, ocx_instance_id: str, hours: int = 24) -> List[Dict]:
-        """Query recent attestations from Cloud Spanner"""
-        query = """
-            SELECT * FROM trust_attestations
-            WHERE ocx_instance_id = @ocx_instance_id
-            AND timestamp > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @hours HOUR)
-            ORDER BY timestamp DESC
-        """
-        
-        with self.database.snapshot() as snapshot:
-            results = snapshot.execute_sql(
-                query,
-                params={'ocx_instance_id': ocx_instance_id, 'hours': hours},
-                param_types={
-                    'ocx_instance_id': self.spanner.param_types.STRING,
-                    'hours': self.spanner.param_types.INT64
-                }
-            )
-            
-            attestations = []
-            for row in results:
-                attestations.append({
-                    'attestation_id': row[0],
-                    'tenant_id': row[1],
-                    'ocx_instance_id': row[2],
-                    'agent_id': row[3],
-                    'audit_hash': row[4],
-                    'trust_level': row[5],
-                    'signature': row[6],
-                    'expires_at': row[7],
-                    'timestamp': row[8],
-                    'metadata': json.loads(row[9]) if row[9] else {}
-                })
-            
-            return attestations
-
-
 class TrustAttestationLedger:
     """
-    Trust Attestation Ledger with automatic backend selection.
-    
-    Backend Selection:
-    - PostgreSQL/Supabase: Default (< $10M clients)
-    - Cloud Spanner: Enterprise ($10M+ clients)
+    Trust Attestation Ledger with Supabase/PostgreSQL backend.
     """
     
-    def __init__(self, ocx_instance_id: str, tenant_id: str = "default"):
+    def __init__(self, ocx_instance_id: str, tenant_id: str = "default") -> None:
         """
-        Initialize Trust Attestation Ledger with automatic backend selection.
+        Initialize Trust Attestation Ledger.
         
         Args:
             ocx_instance_id: This OCX instance's unique ID
@@ -265,20 +154,10 @@ class TrustAttestationLedger:
         self.ocx_instance_id = ocx_instance_id
         self.tenant_id = tenant_id
         
-        # Select backend based on configuration
+        # Use PostgreSQL/Supabase backend
         config = get_db_config()
-        
-        if is_spanner_enabled():
-            try:
-                self.backend = SpannerLedgerBackend(config)
-                print(f"🚀 Using Cloud Spanner for {ocx_instance_id} (ENTERPRISE)")
-            except Exception as e:
-                print(f"⚠️  Cloud Spanner initialization failed: {e}")
-                print("   Falling back to PostgreSQL")
-                self.backend = PostgreSQLLedgerBackend(config)
-        else:
-            self.backend = PostgreSQLLedgerBackend(config)
-            print(f"✅ Using PostgreSQL for {ocx_instance_id}")
+        self.backend = PostgreSQLLedgerBackend(config)
+        logger.info(f"Trust Attestation Ledger initialized for {ocx_instance_id}")
     
     def publish_attestation(self, agent_id: str, audit_result: Dict) -> str:
         """
@@ -349,9 +228,7 @@ class TrustAttestationLedger:
 
 # Example usage
 if __name__ == "__main__":
-    from config.database_config import print_database_config
-    
-    print_database_config()
+    logging.basicConfig(level=logging.INFO)
     
     # Test ledger
     ledger = TrustAttestationLedger("ocx-us-west1-001", "tenant-alpha")
@@ -362,4 +239,4 @@ if __name__ == "__main__":
         audit_result={'trust_score': 0.92, 'verdict': 'APPROVED'}
     )
     
-    print(f"\n✅ Published attestation: {attestation_id}")
+    logger.info(f"Published attestation: {attestation_id}")

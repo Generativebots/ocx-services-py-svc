@@ -9,6 +9,9 @@ import json
 from typing import Dict, Any, Optional, Callable
 from dataclasses import dataclass
 from json_logic_engine import JSONLogicEngine
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -43,12 +46,12 @@ class GhostStateEngine:
     5. If violation → BLOCK, else → ALLOW
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.logic_engine = JSONLogicEngine()
         self.state_simulators: Dict[str, Callable] = {}
         self._register_default_simulators()
     
-    def _register_default_simulators(self):
+    def _register_default_simulators(self) -> None:
         """Register default state simulators for common tools"""
         self.state_simulators = {
             "execute_payment": self._simulate_payment,
@@ -57,7 +60,7 @@ class GhostStateEngine:
             "send_message": self._simulate_message,
         }
     
-    def register_simulator(self, tool_name: str, simulator: Callable):
+    def register_simulator(self, tool_name: str, simulator: Callable) -> None:
         """Register custom state simulator for a tool"""
         self.state_simulators[tool_name] = simulator
     
@@ -150,7 +153,7 @@ class GhostStateEngine:
     
     # --- State Simulators ---
     
-    def _simulate_payment(self, state: StateSnapshot, args: Dict[str, Any]):
+    def _simulate_payment(self, state: StateSnapshot, args: Dict[str, Any]) -> None:
         """Simulate payment execution"""
         amount = args.get("amount", 0)
         from_account = args.get("from_account", "default")
@@ -163,7 +166,7 @@ class GhostStateEngine:
         tax = amount * 0.01  # 1% tax
         state.agent_balance -= tax
     
-    def _simulate_external_request(self, state: StateSnapshot, args: Dict[str, Any]):
+    def _simulate_external_request(self, state: StateSnapshot, args: Dict[str, Any]) -> None:
         """Simulate external data request"""
         data_id = args.get("data_id")
         destination = args.get("destination")
@@ -172,7 +175,7 @@ class GhostStateEngine:
             # Mark data as moved to external
             state.data_locations[data_id] = "external"
     
-    def _simulate_transfer(self, state: StateSnapshot, args: Dict[str, Any]):
+    def _simulate_transfer(self, state: StateSnapshot, args: Dict[str, Any]) -> None:
         """Simulate fund transfer"""
         amount = args.get("amount", 0)
         from_account = args.get("from_account")
@@ -186,7 +189,7 @@ class GhostStateEngine:
         else:
             state.account_balances[to_account] = amount
     
-    def _simulate_message(self, state: StateSnapshot, args: Dict[str, Any]):
+    def _simulate_message(self, state: StateSnapshot, args: Dict[str, Any]) -> None:
         """Simulate message sending"""
         # Check for PII in message
         content = args.get("content", "")
@@ -203,7 +206,7 @@ class GhostStateEscrowGate:
     Integrates with existing Economic Barrier
     """
     
-    def __init__(self, ghost_engine: GhostStateEngine):
+    def __init__(self, ghost_engine: GhostStateEngine) -> None:
         self.ghost_engine = ghost_engine
     
     def evaluate_with_projection(

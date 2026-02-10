@@ -6,6 +6,8 @@ Tracks extraction time, evaluation latency, and policy performance
 from prometheus_client import Counter, Histogram, Gauge, Summary
 import time
 from functools import wraps
+import logging
+logger = logging.getLogger(__name__)
 
 
 # Extraction metrics
@@ -119,11 +121,11 @@ model_errors = Counter(
 
 
 # Decorators for automatic metric tracking
-def track_extraction(source_name: str, model: str):
+def track_extraction(source_name: str, model: str) -> None:
     """Decorator to track policy extraction metrics"""
-    def decorator(func):
+    def decorator(func) -> None:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args, **kwargs) -> Any:
             start_time = time.time()
             status = "success"
             
@@ -160,11 +162,11 @@ def track_extraction(source_name: str, model: str):
     return decorator
 
 
-def track_evaluation(policy_id: str, tier: str):
+def track_evaluation(policy_id: str, tier: str) -> None:
     """Decorator to track policy evaluation metrics"""
-    def decorator(func):
+    def decorator(func) -> None:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args, **kwargs) -> Any:
             start_time = time.time()
             
             try:
@@ -202,11 +204,11 @@ def track_evaluation(policy_id: str, tier: str):
     return decorator
 
 
-def track_ghost_state(tool_name: str):
+def track_ghost_state(tool_name: str) -> None:
     """Decorator to track Ghost-State simulation metrics"""
-    def decorator(func):
+    def decorator(func) -> None:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args, **kwargs) -> Any:
             start_time = time.time()
             
             try:
@@ -241,7 +243,7 @@ if __name__ == "__main__":
     
     # Simulate some metrics
     @track_extraction("Procurement SOP", "mistral-7b")
-    def extract_policies():
+    def extract_policies() -> list:
         time.sleep(0.5)  # Simulate extraction
         return [
             {"policy_id": "P1", "confidence": 0.95},
@@ -249,7 +251,7 @@ if __name__ == "__main__":
         ]
     
     @track_evaluation("PURCHASE_001", "CONTEXTUAL")
-    def evaluate_policy():
+    def evaluate_policy() -> Any:
         time.sleep(0.01)  # Simulate evaluation
         return False, "BLOCK"
     
@@ -262,4 +264,5 @@ if __name__ == "__main__":
     
     # Keep server running
     import threading
+
     threading.Event().wait()

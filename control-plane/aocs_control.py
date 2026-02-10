@@ -100,7 +100,7 @@ class ToolRegistryEntry:
 class IdentityValidator:
     """Client for Identity validation (MFAA, SPIFFE)"""
     
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://localhost:8000") -> None:
         self.base_url = base_url
     
     async def verify(
@@ -132,7 +132,7 @@ class IdentityValidator:
 class SignalAnalyzer:
     """Client for Signal validation (Entropy, Jitter)"""
     
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://localhost:8000") -> None:
         self.base_url = base_url
     
     async def analyze(
@@ -178,7 +178,7 @@ class SignalAnalyzer:
 class CognitiveValidator:
     """Client for Cognitive validation (Jury, APE)"""
     
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://localhost:8000") -> None:
         self.base_url = base_url
     
     async def audit(
@@ -249,7 +249,7 @@ class AOCSControlPlane:
         identity_validator: Optional[IdentityValidator] = None,
         signal_analyzer: Optional[SignalAnalyzer] = None,
         cognitive_validator: Optional[CognitiveValidator] = None,
-    ):
+    ) -> None:
         self.identity = identity_validator or IdentityValidator()
         self.signal = signal_analyzer or SignalAnalyzer()
         self.cognitive = cognitive_validator or CognitiveValidator()
@@ -452,7 +452,7 @@ class BCCControlPlane(AOCSControlPlane):
     4. Update BPF maps
     """
     
-    def __init__(self, ebpf_source: str = "interceptor.bpf.c"):
+    def __init__(self, ebpf_source: str = "interceptor.bpf.c") -> None:
         super().__init__()
         self.ebpf_source = ebpf_source
         self._bpf = None
@@ -473,7 +473,7 @@ class BCCControlPlane(AOCSControlPlane):
             escrow_events = self._bpf["escrow_events"]
             
             # Set up callback
-            def handle_event(cpu, data, size):
+            def handle_event(cpu, data, size) -> None:
                 event = self._parse_escrow_event(data)
                 asyncio.create_task(self.process_escrow_event(event))
             
@@ -558,7 +558,7 @@ class SimulateEscrowResponse(BaseModel):
 
 
 @router.post("/simulate", response_model=SimulateEscrowResponse)
-async def simulate_escrow_event(req: SimulateEscrowRequest):
+async def simulate_escrow_event(req: SimulateEscrowRequest) -> Any:
     """Simulate an escrow event for testing the Tri-Factor Gate."""
     import hashlib
     
@@ -597,7 +597,7 @@ async def simulate_escrow_event(req: SimulateEscrowRequest):
 
 
 @router.get("/status")
-async def control_plane_status():
+async def control_plane_status() -> dict:
     """Get control plane status."""
     return {
         "running": _control_plane._running,

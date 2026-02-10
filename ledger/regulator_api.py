@@ -6,20 +6,69 @@ Does NOT modify core OCX enforcement - only provides read-only access.
 """
 
 from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from typing import Optional, List
+from pydantic import BaseModel
+from typing import Optional, List, Any
 import secrets
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="OCX Regulator API", version="1.0.0")
 
+# CORS middleware for frontend access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # In-memory API key storage (replace with database in production)
 REGULATOR_API_KEYS = {}
 
 
-def verify_api_key(x_api_key: str = Header(...)):
+# Response models
+class AuditTrailPeriod(BaseModel):
+    start: str
+    end: str
+
+class AuditTrailStatistics(BaseModel):
+    total_actions: int
+    blocked_actions: int
+    sequestered_actions: int
+    pass_rate: float
+
+class AuditTrailResponse(BaseModel):
+    agent_id: str
+    period: AuditTrailPeriod
+    statistics: AuditTrailStatistics
+    entries: List[Any]
+
+class ChainVerifyResponse(BaseModel):
+    chain_valid: bool
+    verified_at: str
+    verified_by: str
+
+class ApiKeyRegulatorInfo(BaseModel):
+    name: str
+    organization: str
+    created_at: str
+
+class ApiKeyResponse(BaseModel):
+    api_key: str
+    regulator: ApiKeyRegulatorInfo
+    usage: str
+
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+
+
+def verify_api_key(x_api_key: str = Header(...)) -> dict:
     """
     Verify regulator API key.
     
@@ -38,7 +87,7 @@ def verify_api_key(x_api_key: str = Header(...)):
 def get_compliance_certificate(
     transaction_id: str,
     regulator: dict = Depends(verify_api_key)
-):
+) -> Any:
     """
     Get compliance certificate PDF for a specific transaction.
     
@@ -75,13 +124,13 @@ def get_compliance_certificate(
     )
 
 
-@app.get("/api/regulator/audit-trail/{agent_id}")
+@app.get("/api/regulator/audit-trail/{agent_id}", response_model=AuditTrailResponse)
 def get_audit_trail(
     agent_id: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     regulator: dict = Depends(verify_api_key)
-):
+) -> Any:
     """
     Get audit trail for a specific agent.
     
@@ -108,24 +157,24 @@ def get_audit_trail(
     
     logger.info(f"Regulator {regulator['name']} accessed audit trail for {agent_id}")
     
-    return {
-        'agent_id': agent_id,
-        'period': {
-            'start': start_date or 'beginning',
-            'end': end_date or 'now'
-        },
-        'statistics': {
-            'total_actions': total_actions,
-            'blocked_actions': blocked_actions,
-            'sequestered_actions': sequestered_actions,
-            'pass_rate': (total_actions - blocked_actions) / total_actions if total_actions > 0 else 0
-        },
-        'entries': entries
-    }
+    return AuditTrailResponse(
+        agent_id=agent_id,
+        period=AuditTrailPeriod(
+            start=start_date or 'beginning',
+            end=end_date or 'now'
+        ),
+        statistics=AuditTrailStatistics(
+            total_actions=total_actions,
+            blocked_actions=blocked_actions,
+            sequestered_actions=sequestered_actions,
+            pass_rate=(total_actions - blocked_actions) / total_actions if total_actions > 0 else 0
+        ),
+        entries=entries
+    )
 
 
-@app.get("/api/regulator/verify-chain")
-def verify_chain(regulator: dict = Depends(verify_api_key)):
+@app.get("/api/regulator/verify-chain", response_model=ChainVerifyResponse)
+def verify_chain(regulator: dict = Depends(verify_api_key)) -> ChainVerifyResponse:
     """
     Verify integrity of entire governance ledger chain.
     
@@ -144,19 +193,19 @@ def verify_chain(regulator: dict = Depends(verify_api_key)):
     
     logger.info(f"Regulator {regulator['name']} verified chain: {is_valid}")
     
-    return {
-        'chain_valid': is_valid,
-        'verified_at': __import__('datetime').datetime.utcnow().isoformat(),
-        'verified_by': regulator['name']
-    }
+    return ChainVerifyResponse(
+        chain_valid=is_valid,
+        verified_at=__import__('datetime').datetime.utcnow().isoformat(),
+        verified_by=regulator['name']
+    )
 
 
-@app.post("/api/regulator/api-key")
+@app.post("/api/regulator/api-key", response_model=ApiKeyResponse)
 def generate_api_key(
     regulator_name: str,
     regulator_org: str,
     admin_secret: str
-):
+) -> Any:
     """
     Generate API key for a regulator (admin only).
     
@@ -168,8 +217,11 @@ def generate_api_key(
     Returns:
         JSON: API key
     """
-    # Verify admin secret (replace with proper auth in production)
-    if admin_secret != "ADMIN_SECRET_CHANGE_ME":
+    # Verify admin secret from environment (never hardcoded)
+    expected_secret = os.environ.get("REGULATOR_ADMIN_SECRET")
+    if not expected_secret:
+        raise HTTPException(status_code=500, detail="Admin secret not configured")
+    if admin_secret != expected_secret:
         raise HTTPException(status_code=403, detail="Invalid admin secret")
     
     # Generate API key
@@ -184,17 +236,17 @@ def generate_api_key(
     
     logger.info(f"Generated API key for regulator: {regulator_name} ({regulator_org})")
     
-    return {
-        'api_key': api_key,
-        'regulator': REGULATOR_API_KEYS[api_key],
-        'usage': 'Include in request header as: X-API-Key: {api_key}'
-    }
+    return ApiKeyResponse(
+        api_key=api_key,
+        regulator=ApiKeyRegulatorInfo(**REGULATOR_API_KEYS[api_key]),
+        usage=f'Include in request header as: X-API-Key: {api_key}'
+    )
 
 
-@app.get("/health")
-def health_check():
+@app.get("/health", response_model=HealthResponse)
+def health_check() -> HealthResponse:
     """Health check endpoint."""
-    return {"status": "healthy", "service": "OCX Regulator API"}
+    return HealthResponse(status="healthy", service="OCX Regulator API")
 
 
 if __name__ == "__main__":

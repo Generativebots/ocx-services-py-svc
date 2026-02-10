@@ -13,6 +13,9 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from enum import Enum
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class MemberRole(Enum):
@@ -34,7 +37,7 @@ class ProposalStatus(Enum):
 class CommitteeMember:
     """Represents a member of the OCX Standards Committee"""
     
-    def __init__(self, member_id: str, organization: str, role: MemberRole, votes: int):
+    def __init__(self, member_id: str, organization: str, role: MemberRole, votes: int) -> None:
         self.member_id = member_id
         self.organization = organization
         self.role = role
@@ -56,7 +59,7 @@ class CommitteeMember:
 class GovernanceProposal:
     """Represents a proposal for protocol changes"""
     
-    def __init__(self, title: str, description: str, proposed_by: str, proposal_type: str):
+    def __init__(self, title: str, description: str, proposed_by: str, proposal_type: str) -> None:
         self.proposal_id = str(uuid.uuid4())
         self.title = title
         self.description = description
@@ -105,7 +108,7 @@ class OCXStandardsCommittee:
     SUPERMAJORITY_THRESHOLD = 0.75  # 75% required for approval
     VOTING_PERIOD_DAYS = 14  # 2 weeks
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.members: Dict[str, CommitteeMember] = {}
         self.proposals: Dict[str, GovernanceProposal] = {}
         self.protocol_versions: List[str] = ["1.0"]
@@ -114,7 +117,7 @@ class OCXStandardsCommittee:
         # Initialize default committee members
         self._initialize_committee()
     
-    def _initialize_committee(self):
+    def _initialize_committee(self) -> None:
         """Initialize the 22-member committee"""
         
         # 10 Enterprise Representatives (2 votes each)
@@ -162,13 +165,13 @@ class OCXStandardsCommittee:
         
         print(f"✅ Initialized OCX Standards Committee with {len(self.members)} members")
     
-    def add_member(self, member_id: str, organization: str, role: MemberRole, votes: int):
+    def add_member(self, member_id: str, organization: str, role: MemberRole, votes: int) -> Any:
         """Add a member to the committee"""
         member = CommitteeMember(member_id, organization, role, votes)
         self.members[member_id] = member
         return member
     
-    def remove_member(self, member_id: str):
+    def remove_member(self, member_id: str) -> None:
         """Remove a member from the committee"""
         if member_id in self.members:
             self.members[member_id].active = False

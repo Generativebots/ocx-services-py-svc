@@ -14,6 +14,8 @@ from datetime import datetime
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import json
+import logging
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Activity Registry API", version="1.0.0")
 
@@ -27,7 +29,7 @@ app.add_middleware(
 )
 
 # Database connection
-def get_db():
+def get_db() -> None:
     conn = psycopg2.connect(
         host=os.getenv('DB_HOST', 'localhost'),
         port=os.getenv('DB_PORT', '5432'),
@@ -168,7 +170,7 @@ def increment_version(current_version: str, version_type: VersionType) -> str:
 # ============================================================================
 
 @app.post("/api/v1/activities", response_model=ActivityResponse)
-async def create_activity(activity: ActivityCreate, request: Request, conn = Depends(get_db)):
+async def create_activity(activity: ActivityCreate, request: Request, conn = Depends(get_db)) -> None:
     """
     Create a new activity in DRAFT status
     
@@ -229,7 +231,7 @@ async def create_activity(activity: ActivityCreate, request: Request, conn = Dep
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/activities/{activity_id}", response_model=ActivityResponse)
-async def get_activity(activity_id: str, conn = Depends(get_db)):
+async def get_activity(activity_id: str, conn = Depends(get_db)) -> Any:
     """Get activity by ID"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -250,7 +252,7 @@ async def list_activities(
     limit: int = 100,
     offset: int = 0,
     conn = Depends(get_db)
-):
+) -> list:
     """List activities with optional filters"""
     tenant_id = request.headers.get("X-Tenant-ID")
     if not tenant_id:
@@ -282,7 +284,7 @@ async def list_activities(
     return [ActivityResponse(**r) for r in results]
 
 @app.get("/api/v1/activities/latest/{name}", response_model=ActivityResponse)
-async def get_latest_activity(name: str, conn = Depends(get_db)):
+async def get_latest_activity(name: str, conn = Depends(get_db)) -> Any:
     """Get latest version of an activity by name"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -299,7 +301,7 @@ async def get_latest_activity(name: str, conn = Depends(get_db)):
     return ActivityResponse(**activity)
 
 @app.patch("/api/v1/activities/{activity_id}", response_model=ActivityResponse)
-async def update_activity(activity_id: str, update: ActivityUpdate, conn = Depends(get_db)):
+async def update_activity(activity_id: str, update: ActivityUpdate, conn = Depends(get_db)) -> Any:
     """
     Update activity metadata (description, tags, category)
     
@@ -344,7 +346,7 @@ async def update_activity(activity_id: str, update: ActivityUpdate, conn = Depen
 # ============================================================================
 
 @app.post("/api/v1/activities/{activity_id}/request-approval")
-async def request_approval(activity_id: str, request: ApprovalRequest, conn = Depends(get_db)):
+async def request_approval(activity_id: str, request: ApprovalRequest, conn = Depends(get_db)) -> dict:
     """Request approval for an activity"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -390,7 +392,7 @@ async def approve_activity(
     approval_id: str,
     response: ApprovalResponse,
     conn = Depends(get_db)
-):
+) -> dict:
     """
     Approve or reject an activity
     
@@ -450,7 +452,7 @@ async def deploy_activity(
     activity_id: str,
     deployment: DeploymentRequest,
     conn = Depends(get_db)
-):
+) -> None:
     """
     Deploy an activity to an environment
     
@@ -530,7 +532,7 @@ async def deploy_activity(
     return DeploymentResponse(**deployment_result)
 
 @app.get("/api/v1/activities/{activity_id}/deployments", response_model=List[DeploymentResponse])
-async def list_deployments(activity_id: str, conn = Depends(get_db)):
+async def list_deployments(activity_id: str, conn = Depends(get_db)) -> list:
     """List all deployments for an activity"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -549,7 +551,7 @@ async def rollback_deployment(
     deployment_id: str,
     rollback: RollbackRequest,
     conn = Depends(get_db)
-):
+) -> dict:
     """
     Rollback a deployment
     
@@ -609,7 +611,7 @@ async def suspend_activity(
     reason: str,
     suspended_by: str,
     conn = Depends(get_db)
-):
+) -> dict:
     """
     Suspend an activity (emergency stop)
     
@@ -650,7 +652,7 @@ async def create_new_version(
     breaking_changes: Optional[List[str]] = None,
     created_by: str = "system",
     conn = Depends(get_db)
-):
+) -> dict:
     """
     Create a new version of an activity
     
@@ -717,7 +719,7 @@ async def create_new_version(
     }
 
 @app.get("/api/v1/activities/{activity_id}/versions")
-async def get_version_history(activity_id: str, conn = Depends(get_db)):
+async def get_version_history(activity_id: str, conn = Depends(get_db)) -> Any:
     """Get version history for an activity"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -750,7 +752,7 @@ async def get_activity_executions(
     limit: int = 100,
     offset: int = 0,
     conn = Depends(get_db)
-):
+) -> Any:
     """Get execution history for an activity"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -764,7 +766,7 @@ async def get_activity_executions(
     return cursor.fetchall()
 
 @app.get("/api/v1/activities/{activity_id}/stats")
-async def get_activity_stats(activity_id: str, conn = Depends(get_db)):
+async def get_activity_stats(activity_id: str, conn = Depends(get_db)) -> dict:
     """Get execution statistics for an activity"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -788,7 +790,7 @@ async def get_activity_stats(activity_id: str, conn = Depends(get_db)):
     return stats
 
 @app.get("/api/v1/approvals/pending")
-async def get_pending_approvals(conn = Depends(get_db)):
+async def get_pending_approvals(conn = Depends(get_db)) -> Any:
     """Get all pending approvals"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -800,10 +802,11 @@ async def get_pending_approvals(conn = Depends(get_db)):
 # ============================================================================
 
 @app.get("/health")
-async def health():
+async def health() -> dict:
     """Health check"""
     return {"status": "healthy", "service": "activity-registry"}
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8002)

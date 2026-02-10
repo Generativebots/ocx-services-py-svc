@@ -22,7 +22,6 @@ supabase>=2.3.0
 psycopg2-binary>=2.9.9
 redis>=5.0.0
 elasticsearch>=8.11.0
-google-cloud-spanner>=3.40.0
 
 # --- AI / LLM Clients ---
 openai>=1.6.0

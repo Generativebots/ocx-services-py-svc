@@ -5,6 +5,8 @@ This service provides cryptographic audit trails for OCX enforcement decisions.
 It does NOT modify core OCX behavior - it only observes and records.
 
 Core OCX components (SOP, PID Mapper, APE Engine) remain unchanged.
+
+Backend: Supabase (PostgreSQL)
 """
 
 import hashlib
@@ -25,16 +27,18 @@ class ImmutableGovernanceLedger:
     - Previous hash linking (Merkle tree)
     - Tamper-proof chain verification
     - No modification to core OCX enforcement
+    
+    Backend: Supabase via SupabaseLedgerClient
     """
     
-    def __init__(self, spanner_client=None):
+    def __init__(self, supabase_client=None) -> None:
         """
-        Initialize ledger with optional Cloud Spanner client.
+        Initialize ledger with optional Supabase client.
         
         Args:
-            spanner_client: Cloud Spanner client (optional for testing)
+            supabase_client: SupabaseLedgerClient instance (optional for testing)
         """
-        self.spanner = spanner_client
+        self.db_client = supabase_client
         self.previous_hash = "0" * 64  # Genesis hash
         self.chain_cache = []  # In-memory cache for testing
         
@@ -82,8 +86,8 @@ class ImmutableGovernanceLedger:
         entry['hash'] = entry_hash
         
         # Store in database (if available)
-        if self.spanner:
-            self._store_in_spanner(entry)
+        if self.db_client:
+            self.db_client.store_entry(entry)
         else:
             # In-memory storage for testing
             self.chain_cache.append(entry)
@@ -119,8 +123,8 @@ class ImmutableGovernanceLedger:
         Returns:
             bool: True if chain is valid, False if tampered
         """
-        if self.spanner:
-            entries = self._query_all_from_spanner()
+        if self.db_client:
+            entries = self.db_client.query_all()
         else:
             entries = self.chain_cache
         
@@ -131,16 +135,16 @@ class ImmutableGovernanceLedger:
         for entry in entries:
             # Verify hash matches content
             expected_hash = self.calculate_hash(entry)
-            if entry['hash'] != expected_hash:
-                logger.error(f"Hash mismatch: {entry['transaction_id']}")
+            if entry.get('hash', entry.get('block_hash')) != expected_hash:
+                logger.error(f"Hash mismatch: {entry.get('transaction_id')}")
                 return False
             
             # Verify chain linking
-            if entry['previous_hash'] != prev_hash:
-                logger.error(f"Chain break: {entry['transaction_id']}")
+            if entry.get('previous_hash') != prev_hash:
+                logger.error(f"Chain break: {entry.get('transaction_id')}")
                 return False
             
-            prev_hash = entry['hash']
+            prev_hash = entry.get('hash', entry.get('block_hash'))
         
         logger.info(f"Chain verification passed: {len(entries)} entries")
         return True
@@ -155,8 +159,8 @@ class ImmutableGovernanceLedger:
         Returns:
             Dict: Ledger entry or None
         """
-        if self.spanner:
-            return self._query_by_tx_id(transaction_id)
+        if self.db_client:
+            return self.db_client.query_by_transaction_id(transaction_id)
         else:
             for entry in self.chain_cache:
                 if entry['transaction_id'] == transaction_id:
@@ -175,8 +179,8 @@ class ImmutableGovernanceLedger:
         Returns:
             List[Dict]: List of governance events
         """
-        if self.spanner:
-            return self._query_by_agent(agent_id, start_date, end_date)
+        if self.db_client:
+            return self.db_client.query_by_agent(agent_id, start_date, end_date)
         else:
             results = [e for e in self.chain_cache if e['agent_id'] == agent_id]
             
@@ -187,34 +191,13 @@ class ImmutableGovernanceLedger:
                 results = [e for e in results if e['timestamp'] <= end_date]
             
             return results
-    
-    # Cloud Spanner integration (optional)
-    
-    def _store_in_spanner(self, entry: Dict):
-        """Store entry in Cloud Spanner governance_ledger table."""
-        # TODO: Implement Cloud Spanner insert
-        # This is a placeholder for production deployment
-        pass
-    
-    def _query_all_from_spanner(self) -> List[Dict]:
-        """Query all entries from Cloud Spanner."""
-        # TODO: Implement Cloud Spanner query
-        return []
-    
-    def _query_by_tx_id(self, transaction_id: str) -> Optional[Dict]:
-        """Query entry by transaction ID from Cloud Spanner."""
-        # TODO: Implement Cloud Spanner query
-        return None
-    
-    def _query_by_agent(self, agent_id: str, start_date: str = None, end_date: str = None) -> List[Dict]:
-        """Query entries by agent ID from Cloud Spanner."""
-        # TODO: Implement Cloud Spanner query
-        return []
 
 
 # Example usage (does not modify core OCX)
 if __name__ == "__main__":
-    # Initialize ledger
+    logging.basicConfig(level=logging.INFO)
+    
+    # Initialize ledger (in-memory mode for demo)
     ledger = ImmutableGovernanceLedger()
     
     # Record a governance event (called AFTER OCX enforcement)
@@ -230,12 +213,12 @@ if __name__ == "__main__":
     }
     
     hash1 = ledger.record_event(event)
-    print(f"Event recorded: {hash1}")
+    logger.info(f"Event recorded: {hash1}")
     
     # Verify chain
     is_valid = ledger.verify_chain()
-    print(f"Chain valid: {is_valid}")
+    logger.info(f"Chain valid: {is_valid}")
     
     # Retrieve event
     retrieved = ledger.get_event('tx-12345')
-    print(f"Retrieved: {retrieved['hash']}")
+    logger.info(f"Retrieved: {retrieved['hash']}")

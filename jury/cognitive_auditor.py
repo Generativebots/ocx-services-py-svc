@@ -137,19 +137,20 @@ class CognitiveAuditor:
     
     def __init__(
         self,
-        ape_service_url: str = "http://localhost:8000/ape",
-        jury_service_url: str = "http://localhost:8000/jury",
+        ape_service_url: str = None,
+        jury_service_url: str = None,
         trust_threshold: float = 0.65,
         unanimous_required: bool = False,
         quorum_threshold: float = 0.66,
-    ):
-        self.ape_service_url = ape_service_url
-        self.jury_service_url = jury_service_url
+    ) -> None:
+        import os
+        self.ape_service_url = ape_service_url or os.getenv("APE_SERVICE_URL", "http://localhost:8000/ape")
+        self.jury_service_url = jury_service_url or os.getenv("JURY_SERVICE_URL", "http://localhost:8000/jury")
         self.trust_threshold = trust_threshold
         self.unanimous_required = unanimous_required
         self.quorum_threshold = quorum_threshold
         
-        # In-memory baseline cache (production: use Spanner/Redis)
+        # In-memory baseline cache (production: use Supabase/Redis)
         self.baselines: Dict[str, BehavioralBaseline] = {}
         
         # Request history for velocity tracking
@@ -619,7 +620,7 @@ class CognitiveAuditResponse(BaseModel):
 
 
 @router.post("/audit", response_model=CognitiveAuditResponse)
-async def cognitive_audit(req: CognitiveAuditRequest):
+async def cognitive_audit(req: CognitiveAuditRequest) -> Any:
     """Perform cognitive audit on agent request."""
     try:
         result = await _auditor.audit(

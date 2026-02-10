@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from dataclasses import dataclass, asdict
 from enum import Enum
+import logging
+logger = logging.getLogger(__name__)
 
 
 class Industry(Enum):
@@ -61,12 +63,12 @@ class ImpactAssumptions:
 class AdvancedImpactEstimator:
     """Advanced impact estimator with customization and Monte Carlo simulation"""
     
-    def __init__(self, db_conn):
+    def __init__(self, db_conn) -> None:
         self.db_conn = db_conn
         self._init_tables()
         self._load_industry_templates()
     
-    def _init_tables(self):
+    def _init_tables(self) -> None:
         """Initialize tables for custom assumptions"""
         with self.db_conn.cursor() as cur:
             cur.execute("""
@@ -94,7 +96,7 @@ class AdvancedImpactEstimator:
             
             self.db_conn.commit()
     
-    def _load_industry_templates(self):
+    def _load_industry_templates(self) -> None:
         """Load industry-specific templates"""
         self.industry_templates = {
             Industry.FINANCIAL_SERVICES: ImpactAssumptions(
@@ -420,6 +422,7 @@ class AdvancedImpactEstimator:
     ) -> str:
         """Save Monte Carlo simulation results"""
         import uuid
+
         
         simulation_id = f"sim_{uuid.uuid4().hex[:12]}"
         

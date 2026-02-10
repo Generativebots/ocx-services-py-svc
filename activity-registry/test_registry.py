@@ -9,7 +9,7 @@ from datetime import datetime
 
 BASE_URL = "http://localhost:8002"
 
-def test_create_activity():
+def test_create_activity() -> None:
     """Test creating a new activity"""
     print("\n=== Test 1: Create Activity ===")
     
@@ -67,7 +67,7 @@ EVIDENCE
         print(f"Error: {response.text}")
         return None
 
-def test_request_approval(activity_id):
+def test_request_approval(activity_id) -> Any:
     """Test requesting approval"""
     print("\n=== Test 2: Request Approval ===")
     
@@ -90,7 +90,7 @@ def test_request_approval(activity_id):
         print(f"Error: {response.text}")
         return None
 
-def test_approve_activity(activity_id, approval_id):
+def test_approve_activity(activity_id, approval_id) -> None:
     """Test approving an activity"""
     print("\n=== Test 3: Approve Activity ===")
     
@@ -108,7 +108,7 @@ def test_approve_activity(activity_id, approval_id):
     else:
         print(f"Error: {response.text}")
 
-def test_deploy_activity(activity_id):
+def test_deploy_activity(activity_id) -> Any:
     """Test deploying an activity"""
     print("\n=== Test 4: Deploy Activity ===")
     
@@ -132,7 +132,7 @@ def test_deploy_activity(activity_id):
         print(f"Error: {response.text}")
         return None
 
-def test_get_latest_version():
+def test_get_latest_version() -> None:
     """Test getting latest version"""
     print("\n=== Test 5: Get Latest Version ===")
     
@@ -146,7 +146,7 @@ def test_get_latest_version():
     else:
         print(f"Error: {response.text}")
 
-def test_create_new_version(activity_id):
+def test_create_new_version(activity_id) -> Any:
     """Test creating a new version"""
     print("\n=== Test 6: Create New Version ===")
     
@@ -170,7 +170,7 @@ def test_create_new_version(activity_id):
         print(f"Error: {response.text}")
         return None
 
-def test_list_activities():
+def test_list_activities() -> None:
     """Test listing activities"""
     print("\n=== Test 7: List Activities ===")
     
@@ -185,7 +185,7 @@ def test_list_activities():
     else:
         print(f"Error: {response.text}")
 
-def test_rollback(activity_id, deployment_id):
+def test_rollback(activity_id, deployment_id) -> None:
     """Test rollback"""
     print("\n=== Test 8: Rollback Deployment ===")
     
@@ -204,7 +204,7 @@ def test_rollback(activity_id, deployment_id):
     else:
         print(f"Error: {response.text}")
 
-def test_health():
+def test_health() -> None:
     """Test health check"""
     print("\n=== Test 0: Health Check ===")
     

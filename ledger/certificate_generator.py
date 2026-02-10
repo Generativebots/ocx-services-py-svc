@@ -26,7 +26,7 @@ class ComplianceCertificateGenerator:
     OCX's core enforcement decisions.
     """
     
-    def __init__(self, ledger=None):
+    def __init__(self, ledger=None) -> None:
         """
         Initialize certificate generator.
         

@@ -7,10 +7,15 @@ import threading
 # Runs in the background (or as a separate process)
 # Monitors Trust Scores and Auto-Regulates the Nervous System (Go)
 
-GO_ADMIN_URL = "http://localhost:8080/admin/policy"
+import os
+import logging
+logger = logging.getLogger(__name__)
+
+
+GO_ADMIN_URL = os.getenv("GO_ADMIN_URL", "http://localhost:8080/admin/policy")
 DB_PATH = "ledger.db"
 
-def monitor_ledger_loop():
+def monitor_ledger_loop() -> None:
     print("🧹 [Janitor] Starting Autonomous Reputation Monitor...")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()

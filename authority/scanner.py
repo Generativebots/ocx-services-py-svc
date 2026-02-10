@@ -12,11 +12,14 @@ import anthropic
 from google.cloud import storage
 import psycopg2
 from psycopg2.extras import Json
+import logging
+logger = logging.getLogger(__name__)
+
 
 class AuthorityGapScanner:
     """Scans business documents for authority fragmentation"""
     
-    def __init__(self, db_url: str, anthropic_api_key: str):
+    def __init__(self, db_url: str, anthropic_api_key: str) -> None:
         self.db_url = db_url
         self.client = anthropic.Anthropic(api_key=anthropic_api_key)
         self.conn = psycopg2.connect(db_url)
@@ -189,7 +192,7 @@ Return a JSON object with these fields:
         else:
             try:
                 return int(''.join(filter(str.isdigit, freq_str)))
-            except:
+            except (ValueError, TypeError):
                 return 0
     
     def _store_parsed_document(self, company_id: str, doc_type: str, file_path: str, 
@@ -315,6 +318,54 @@ Return a JSON object with these fields:
         
         cursor.close()
         return gaps
+
+    def get_gap_by_id(self, gap_id: str) -> Dict[str, Any]:
+        """Get a specific authority gap by ID"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT gap_id, gap_type, severity, decision_point,
+                   current_authority_holder, execution_system,
+                   accountability_gap, override_frequency,
+                   time_sensitivity, a2a_candidacy_score, status
+            FROM authority_gaps
+            WHERE gap_id = %s
+        """, (gap_id,))
+        
+        row = cursor.fetchone()
+        cursor.close()
+        
+        if not row:
+            return None
+        
+        return {
+            'gap_id': str(row[0]),
+            'gap_type': row[1],
+            'severity': row[2],
+            'decision_point': row[3],
+            'current_authority_holder': row[4],
+            'execution_system': row[5],
+            'accountability_gap': row[6],
+            'override_frequency': row[7],
+            'time_sensitivity': row[8],
+            'a2a_candidacy_score': float(row[9]),
+            'status': row[10]
+        }
+
+    def update_gap_status(self, gap_id: str, new_status: str) -> bool:
+        """Update the status of an authority gap"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE authority_gaps
+            SET status = %s, updated_at = NOW()
+            WHERE gap_id = %s
+            RETURNING gap_id
+        """, (new_status, gap_id))
+        
+        updated = cursor.fetchone() is not None
+        self.conn.commit()
+        cursor.close()
+        return updated
+
 
 
 # Example usage

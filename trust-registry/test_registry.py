@@ -4,12 +4,12 @@ import hashlib
 
 BASE_URL = "http://localhost:8000"
 
-def get_hash(prompt, tools):
+def get_hash(prompt, tools) -> Any:
     tool_slugs = "".join(sorted(tools))
     raw = f"{prompt}{tool_slugs}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
-def run_test():
+def run_test() -> None:
     print("--- 🧪 Advanced Registry Verification ---")
     
     # 1. Register Level 1 Agent (Low Scrutiny)

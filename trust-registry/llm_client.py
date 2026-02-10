@@ -2,13 +2,16 @@ import yaml
 import os
 import requests
 import json
+import logging
+logger = logging.getLogger(__name__)
+
 
 class LLMClient:
-    def __init__(self, config_path="config.yaml"):
+    def __init__(self, config_path="config.yaml") -> None:
         self.config = self._load_config(config_path)
         self.sovereign_mode = self.config.get("SOVEREIGN_MODE", False)
         
-    def _load_config(self, path):
+    def _load_config(self, path) -> Any:
         # Resolve path relative to this file
         base_path = os.path.dirname(os.path.abspath(__file__))
         full_path = os.path.join(base_path, path)
@@ -40,15 +43,15 @@ class LLMClient:
             print(f"⚠️ Config Load Error: {e}")
             return defaults
 
-    def generate(self, prompt, system_prompt=None):
+    def generate(self, prompt, system_prompt=None) -> Any:
         if self.sovereign_mode:
             return self._generate_local(prompt, system_prompt)
         else:
             return self._generate_cloud(prompt, system_prompt)
 
-    def _generate_local(self, prompt, system_prompt):
+    def _generate_local(self, prompt, system_prompt) -> Any:
         """Calls Ollama or vLLM running locally."""
-        url = self.config.get("LOCAL_LLM_URL", "http://localhost:11434/api/generate")
+        url = self.config.get("LOCAL_LLM_URL", os.getenv("LOCAL_LLM_URL", "http://localhost:11434/api/generate"))
         model = self.config.get("LOCAL_MODEL", "llama3")
         
         full_prompt = prompt
@@ -73,11 +76,11 @@ class LLMClient:
             print(f"❌ Local Inference Failed: {e}")
             return "Error: Local Brain Unreachable."
 
-    def _generate_cloud(self, prompt, system_prompt):
+    def _generate_cloud(self, prompt, system_prompt) -> str:
         print("☁️ [Cloud API] Calling Vertex AI...")
         return "Mock Cloud Response: Compliance Verified."
 
-    def _mock_local_response(self, prompt):
+    def _mock_local_response(self, prompt) -> str:
         # Mock responses for logic validation without a beefy GPU
         if "Ignore all previous" in prompt:
             return "BLOCK: Prompt Injection Detected."

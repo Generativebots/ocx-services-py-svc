@@ -10,6 +10,9 @@ from typing import Dict, List, Optional, Any
 from enum import Enum
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class SignalType(str, Enum):
@@ -52,7 +55,7 @@ class SignalCollector:
     4. If all signals valid → ALLOW, else → BLOCK
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.signals: Dict[str, List[Signal]] = {}  # transaction_id -> signals
     
     def add_signal(
@@ -152,7 +155,7 @@ class SignalCollector:
 class CTOSignatureVerifier:
     """Verifies CTO digital signatures"""
     
-    def __init__(self, cto_public_key: str):
+    def __init__(self, cto_public_key: str) -> None:
         self.cto_public_key = cto_public_key
     
     def verify_signature(
@@ -187,7 +190,7 @@ class CTOSignatureVerifier:
 class JuryEntropyChecker:
     """Checks Jury verdict and Entropy score"""
     
-    def __init__(self, jury_client, entropy_monitor):
+    def __init__(self, jury_client, entropy_monitor) -> None:
         self.jury_client = jury_client
         self.entropy_monitor = entropy_monitor
     

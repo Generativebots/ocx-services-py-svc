@@ -3,26 +3,28 @@ Supabase Client for Ledger Service
 ===================================
 
 Provides database operations for the Immutable Governance Ledger.
-Uses Supabase instead of Cloud Spanner.
+P2 FIX #12: Uses SupabaseRetryMixin for exponential backoff on all operations.
 """
 
 import os
 from typing import Dict, List, Optional
 from datetime import datetime
 import logging
+from config.supabase_retry import SupabaseRetryMixin
 
 logger = logging.getLogger(__name__)
 
 
-class SupabaseLedgerClient:
+class SupabaseLedgerClient(SupabaseRetryMixin):
     """
     Supabase client for ledger operations.
+    P2 FIX #12: Inherits SupabaseRetryMixin for automatic retry on failures.
     
     Tables used:
     - governance_ledger: Immutable audit entries
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize Supabase client."""
         from supabase import create_client
         

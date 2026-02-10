@@ -3,14 +3,32 @@ import hmac
 import json
 import os
 import re
+import logging
+logger = logging.getLogger(__name__)
 
-# Simulated Key Registry (In prod, use Vault/KMS)
-# Agent ID -> Secret Key
-AGENT_KEYS = {
-    "Visual-Design-Bot": "secret_visual_key_123",
-    "Procurement-Agent": "secret_procurement_key_456",
-    "test-agent": "secret_test_key_789"
-}
+
+# Agent Key Registry — loads from environment variables
+# In production, use a secrets manager (Vault, GCP Secret Manager, AWS KMS)
+# Set env vars like: AGENT_KEY_VISUAL_DESIGN_BOT=secret_key_here
+def _load_agent_keys() -> Any:
+    """Load agent signing keys from environment variables."""
+    keys = {}
+    prefix = "AGENT_KEY_"
+    for key, value in os.environ.items():
+        if key.startswith(prefix):
+            # Convert AGENT_KEY_VISUAL_DESIGN_BOT -> Visual-Design-Bot
+            agent_name = key[len(prefix):].replace("_", "-").title()
+            keys[agent_name] = value
+    # Fallback for development only
+    if not keys and os.getenv("OCX_ENV", "development") == "development":
+        keys = {
+            "Visual-Design-Bot": os.getenv("AGENT_KEY_VISUAL_DESIGN_BOT", "dev-visual-key"),
+            "Procurement-Agent": os.getenv("AGENT_KEY_PROCUREMENT_AGENT", "dev-procurement-key"),
+            "test-agent": os.getenv("AGENT_KEY_TEST_AGENT", "dev-test-key"),
+        }
+    return keys
+
+AGENT_KEYS = _load_agent_keys()
 
 # 1. Prompt Injection Patterns (Basic Regex Layer)
 INJECTION_PATTERNS = [
@@ -29,7 +47,7 @@ PII_PATTERNS = {
     "API_KEY": r"(sk-[a-zA-Z0-9]{32,})"
 }
 
-def verify_agent_integrity(agent_id, payload, signature):
+def verify_agent_integrity(agent_id, payload, signature) -> bool:
     """
     Verifies that the payload was signed by the agent's secret key.
     Enforces Non-Repudiation.

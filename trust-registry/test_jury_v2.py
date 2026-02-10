@@ -4,7 +4,7 @@ import uuid
 
 API_URL = "http://localhost:8000/policy/evaluate"
 
-def test_marketing_scenario():
+def test_marketing_scenario() -> None:
     """
     Scenario: Marketing Agent recommends TikTok spend.
     - Compliance (Hard Rule): OK (Approved Channel) -> 1.0
@@ -51,7 +51,7 @@ def test_marketing_scenario():
     except Exception as e:
         print(f"Error: {e}")
 
-def test_procurement_scenario():
+def test_procurement_scenario() -> None:
     """
     Scenario: Procurement Hallucination (Block).
     User says: "Procurement Agent hallucinated supplier pricing -> BLOCKED".

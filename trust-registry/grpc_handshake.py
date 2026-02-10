@@ -16,7 +16,7 @@ except ImportError:
     class MockPB2GRPC:
         PlanServiceStub = lambda x: MockStub()
     class MockStub:
-        def RegisterIntent(self, plan):
+        def RegisterIntent(self, plan) -> Any:
              return type('Response', (object,), {"message": "Mock Success"})()
     traffic_assessment_pb2 = MockPB2()
     traffic_assessment_pb2_grpc = MockPB2GRPC()
@@ -26,11 +26,13 @@ class HandshakeOrchestrator:
     Acts as 'The Brain' (Python Orchestrator Handshake).
     Predicts agent actions, hashes the intent, and registers the plan with the Go Gateway.
     """
-    def __init__(self, gateway_address='localhost:50051'):
+    def __init__(self, gateway_address=None) -> None:
+        import os
+        gateway_address = gateway_address or os.getenv("GRPC_GATEWAY_ADDRESS", "localhost:50051")
         self.channel = grpc.insecure_channel(gateway_address)
         self.stub = traffic_assessment_pb2_grpc.PlanServiceStub(self.channel)
 
-    def generate_expected_hash(self, predicted_changes):
+    def generate_expected_hash(self, predicted_changes) -> Any:
         """
         Creates a SHA-256 fingerprint of what the AI predicts will happen.
         predicted_changes: A dict of expected file/DB/network changes.
@@ -38,7 +40,7 @@ class HandshakeOrchestrator:
         serialized_intent = json.dumps(predicted_changes, sort_keys=True).encode('utf-8')
         return hashlib.sha256(serialized_intent).hexdigest()
 
-    def send_plan_to_gateway(self, agent_id, intent_data, manual_review=False):
+    def send_plan_to_gateway(self, agent_id, intent_data, manual_review=False) -> bool:
         """
         Registers the execution plan with the Nervous System (Go Gateway).
         """

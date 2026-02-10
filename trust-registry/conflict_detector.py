@@ -7,6 +7,9 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 from json_logic_engine import JSONLogicEngine
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class ConflictType(str, Enum):
@@ -40,7 +43,7 @@ class ConflictDetector:
     4. PRECEDENCE: Same tier policies with conflicting actions
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.logic_engine = JSONLogicEngine()
     
     def detect_conflicts(

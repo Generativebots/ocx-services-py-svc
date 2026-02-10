@@ -397,7 +397,7 @@ def inject_strategic_jitter() -> float:
 # ============================================================================
 
 @router.post("/analyze", response_model=EntropyResponse)
-async def analyze_entropy(req: EntropyRequest):
+async def analyze_entropy(req: EntropyRequest) -> Any:
     """Legacy endpoint - entropy analysis only"""
     try:
         data = bytes.fromhex(req.payload_hex)
@@ -426,7 +426,7 @@ async def analyze_entropy(req: EntropyRequest):
 
 
 @router.post("/validate", response_model=FullSignalValidationResponse)
-async def full_signal_validation(req: SignalValidationRequest):
+async def full_signal_validation(req: SignalValidationRequest) -> None:
     """
     Full AOCS Signal Validation - all dimensions
     

@@ -5,6 +5,9 @@ Implements full JSON-Logic standard for policy evaluation
 
 from typing import Any, Dict, List, Optional
 import json_logic
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class JSONLogicEngine:
@@ -13,7 +16,7 @@ class JSONLogicEngine:
     Supports: and, or, not, in, >, <, >=, <=, ==, !=, var
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         # Pre-compile common logic patterns for performance
         self._cache: Dict[str, Any] = {}
     
@@ -80,7 +83,7 @@ class JSONLogicEngine:
         """
         variables = []
         
-        def traverse(obj):
+        def traverse(obj) -> Any:
             if isinstance(obj, dict):
                 if "var" in obj:
                     variables.append(obj["var"])

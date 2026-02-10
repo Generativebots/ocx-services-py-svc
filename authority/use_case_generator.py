@@ -6,6 +6,9 @@ Implements 5 canonical A2A patterns
 from typing import Dict, List, Any
 from enum import Enum
 import uuid
+import logging
+logger = logging.getLogger(__name__)
+
 
 class A2APattern(Enum):
     ARBITRATION = "Arbitration"
@@ -17,7 +20,7 @@ class A2APattern(Enum):
 class A2AUseCaseGenerator:
     """Generates A2A use cases from authority gaps"""
     
-    def __init__(self, db_conn):
+    def __init__(self, db_conn) -> None:
         self.conn = db_conn
     
     def generate_use_case(self, gap_id: str, canvas: Dict[str, Any]) -> Dict[str, Any]:

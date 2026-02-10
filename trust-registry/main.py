@@ -1,11 +1,14 @@
 import os
 import uuid
 import json
+import logging
 from typing import Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from ecdsa import VerifyingKey, NIST256p
+
+logger = logging.getLogger(__name__)
 
 from jury import Jury
 from ledger import Ledger
@@ -14,6 +17,7 @@ from registry import Registry
 from policy_engine import router as policy_router
 from ape_engine import router as ape_router
 from orchestrator import ocx_governance_orchestrator
+from ghost_state_engine import GhostStateEngine, StateSnapshot
 
 app = FastAPI(title="OCX Trust Registry (The Heart)")
 
@@ -34,6 +38,7 @@ jury = Jury()
 ledger = Ledger()
 kill_switch = KillSwitch()
 registry = Registry()
+ghost_engine = GhostStateEngine()  # G7 fix: Ghost State for speculative policy eval
 
 # Load Rules
 try:
@@ -57,11 +62,11 @@ class EvaluationResponse(BaseModel):
     breakdown: Dict[str, float] # Changed to Dict
 
 @app.get("/health")
-def health():
+def health() -> dict:
     return {"status": "ok", "service": "Trust Registry"}
 
 @app.post("/evaluate", response_model=EvaluationResponse)
-async def evaluate_intent(req: EvaluationRequest, request: Request = None):
+async def evaluate_intent(req: EvaluationRequest, request: Request = None) -> None:
     # Ensure Trace ID
     trace_id = req.trace_id or f"trace-{uuid.uuid4()}"
     
@@ -106,6 +111,31 @@ async def evaluate_intent(req: EvaluationRequest, request: Request = None):
         "tier": metadata.get("tier", "Standard")
     }
     
+    # G7 fix: Ghost State speculative policy evaluation (Claim 9)
+    # Evaluate policy against the projected future state before full scoring
+    ghost_result = None
+    try:
+        current_state = StateSnapshot(
+            agent_states={req.agent_id: {"action": req.proposed_action}},
+            trust_scores={req.agent_id: 0.5},  # default; will be refined by jury
+            entitlements={req.agent_id: [f"{req.proposed_action}:execute"]},
+        )
+        # Only evaluate if we have a policy_logic rule registered
+        policy_logic = {">": [{"var": f"trust_scores.{req.agent_id}"}, 0.3]}
+        ghost_result = ghost_engine.evaluate_with_ghost_state(
+            current_state=current_state,
+            tool_name=req.proposed_action,
+            tool_args=req.context,
+            policy_logic=policy_logic,
+        )
+        if ghost_result and not ghost_result.get("policy_passed", True):
+            logger.warning(
+                "👻 Ghost State blocked %s: %s",
+                req.agent_id, ghost_result.get("violations", []),
+            )
+    except Exception as e:
+        logger.warning("⚠️ Ghost state evaluation failed (non-blocking): %s", e)
+    
     # Prepare Components
     components = {
         "jury": jury,
@@ -149,22 +179,22 @@ async def evaluate_intent(req: EvaluationRequest, request: Request = None):
 # Note: /health route is already defined above at line 57
 
 @app.get("/ledger/recent")
-def get_ledger_recent():
+def get_ledger_recent() -> Any:
     return ledger.get_recent_transactions()
 
 @app.get("/ledger/stats")
-def get_ledger_stats():
+def get_ledger_stats() -> Any:
     return ledger.get_daily_stats()
 
 @app.get("/ledger/health/{agent_id}")
-def check_agent_health(agent_id: str):
+def check_agent_health(agent_id: str) -> Any:
     return ledger.check_weekly_drift(agent_id)
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
 @app.get("/memory/vault")
-async def get_memory_vault():
+async def get_memory_vault() -> dict:
     """
     Reads the Memory Vault logs from the filesystem.
     """
@@ -179,7 +209,7 @@ async def get_memory_vault():
                         if line.strip():
                             try:
                                 logs.append(json.loads(line))
-                            except:
+                            except Exception:
                                 pass
     
     # Sort by timestamp desc

@@ -1,16 +1,19 @@
 from typing import Dict, Any
 from correction_agent import CorrectionAgent
 from jury import Jury
+import logging
+logger = logging.getLogger(__name__)
+
 
 class A2ANegotiatorArbitrator:
     """
     Arbitrates bilateral agent negotiations to prevent collusion and hallucination loops.
     """
-    def __init__(self, jury_service: Jury, correction_agent: CorrectionAgent):
+    def __init__(self, jury_service: Jury, correction_agent: CorrectionAgent) -> None:
         self.jury = jury_service
         self.corrector = correction_agent
 
-    def arbitrate_exchange(self, buyer_payload: Dict, seller_payload: Dict):
+    def arbitrate_exchange(self, buyer_payload: Dict, seller_payload: Dict) -> None:
         """
         Intercepts a bilateral negotiation turn and validates against the Global SOP.
         """
@@ -62,5 +65,5 @@ class A2ANegotiatorArbitrator:
 
         return {"status": "ALLOW", "verdict": verdict}
 
-    def log_transaction(self, verdict):
+    def log_transaction(self, verdict) -> None:
         print(f"📒 [Ledger] A2A Negotiation Step Secured: {verdict['trace_id']}")

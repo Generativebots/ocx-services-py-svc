@@ -1,18 +1,24 @@
 """
 Complete Supabase Client for OCX Jury Service
-Provides all CRUD operations for trust calculation and verdict recording
+Provides all CRUD operations for trust calculation and verdict recording.
+P2 FIX #12: Uses SupabaseRetryMixin for exponential backoff on all operations.
 """
 
 import os
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta
 from supabase import create_client, Client
+from config.supabase_retry import SupabaseRetryMixin
+import logging
+logger = logging.getLogger(__name__)
 
 
-class SupabaseClient:
-    """Enhanced Supabase client with all OCX database operations"""
+
+class SupabaseClient(SupabaseRetryMixin):
+    """Enhanced Supabase client with all OCX database operations.
+    P2 FIX #12: Inherits SupabaseRetryMixin for automatic retry on failures."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize Supabase client from environment variables"""
         url = os.getenv("SUPABASE_URL")
         key = os.getenv("SUPABASE_SERVICE_KEY")

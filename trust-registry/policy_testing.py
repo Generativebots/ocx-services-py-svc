@@ -8,6 +8,9 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from json_logic_engine import JSONLogicEngine
 from policy_hierarchy import Policy, PolicyTier
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -34,7 +37,7 @@ class TestResult:
 class PolicyTestGenerator:
     """Generates test cases for policies"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.logic_engine = JSONLogicEngine()
     
     def generate_test_cases(self, policy: Dict[str, Any]) -> List[TestCase]:
@@ -147,7 +150,7 @@ class PolicyTestGenerator:
 class PolicySimulator:
     """Simulates policy execution"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.logic_engine = JSONLogicEngine()
     
     def run_test(
@@ -212,7 +215,7 @@ class PolicySimulator:
 class RegressionTester:
     """Runs regression tests on policy changes"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.simulator = PolicySimulator()
         self.test_history: Dict[str, List[TestResult]] = {}
     

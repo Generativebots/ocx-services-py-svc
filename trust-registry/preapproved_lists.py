@@ -8,6 +8,8 @@ import redis
 import json
 from typing import List, Optional, Dict, Any
 from enum import Enum
+import logging
+logger = logging.getLogger(__name__)
 
 
 class ListType(str, Enum):
@@ -22,7 +24,7 @@ class PreApprovedListManager:
     Stored in Redis for fast lookup in JSON-Logic evaluation
     """
     
-    def __init__(self, redis_client: redis.Redis):
+    def __init__(self, redis_client: redis.Redis) -> None:
         self.redis = redis_client
     
     def create_list(
@@ -202,7 +204,7 @@ COMMON_LISTS = {
 }
 
 
-def initialize_common_lists(manager: PreApprovedListManager):
+def initialize_common_lists(manager: PreApprovedListManager) -> None:
     """Initialize common pre-approved lists"""
     for list_name, items in COMMON_LISTS.items():
         list_type = ListType.BLACKLIST if "BLOCKED" in list_name else ListType.WHITELIST
@@ -217,7 +219,14 @@ def initialize_common_lists(manager: PreApprovedListManager):
 # Example usage
 if __name__ == "__main__":
     # Connect to Redis
-    r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=False)
+    import os
+
+    r = redis.Redis(
+        host=os.getenv("REDIS_HOST", "localhost"),
+        port=int(os.getenv("REDIS_PORT", "6379")),
+        db=0,
+        decode_responses=False
+    )
     
     # Create manager
     manager = PreApprovedListManager(r)

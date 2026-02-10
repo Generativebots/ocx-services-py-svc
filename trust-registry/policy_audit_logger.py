@@ -1,29 +1,33 @@
 """
-Cloud Spanner Audit Logger for Policy Evaluations
+Supabase Audit Logger for Policy Evaluations
 Logs all policy evaluations for compliance and debugging
 """
 
 import uuid
-import time
 import json
+import os
+import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from google.cloud import spanner
-from google.cloud.spanner_v1 import param_types
+
+logger = logging.getLogger(__name__)
 
 
 class PolicyAuditLogger:
-    """Logs policy evaluations to Cloud Spanner"""
+    """Logs policy evaluations to Supabase"""
     
-    def __init__(
-        self,
-        project_id: str,
-        instance_id: str,
-        database_id: str
-    ):
-        self.client = spanner.Client(project=project_id)
-        self.instance = self.client.instance(instance_id)
-        self.database = self.instance.database(database_id)
+    def __init__(self) -> None:
+        from supabase import create_client
+        
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_KEY")
+        
+        if not url or not key:
+            logger.warning("Supabase credentials not configured. Audit logging disabled.")
+            self.client = None
+        else:
+            self.client = create_client(url, key)
+            logger.info("Policy Audit Logger initialized with Supabase")
     
     def log_evaluation(
         self,
@@ -44,34 +48,24 @@ class PolicyAuditLogger:
         """
         audit_id = str(uuid.uuid4())
         
-        with self.database.batch() as batch:
-            batch.insert(
-                table="PolicyAudits",
-                columns=[
-                    "AuditID",
-                    "PolicyID",
-                    "AgentID",
-                    "TriggerIntent",
-                    "Tier",
-                    "Violated",
-                    "Action",
-                    "DataPayload",
-                    "EvaluationTimeMs",
-                    "Timestamp"
-                ],
-                values=[(
-                    audit_id,
-                    policy_id,
-                    agent_id,
-                    trigger_intent,
-                    tier,
-                    violated,
-                    action,
-                    json.dumps(data_payload),
-                    evaluation_time_ms,
-                    spanner.COMMIT_TIMESTAMP
-                )]
-            )
+        if not self.client:
+            return audit_id
+        
+        try:
+            self.client.table("policy_audits").insert({
+                "audit_id": audit_id,
+                "policy_id": policy_id,
+                "agent_id": agent_id,
+                "trigger_intent": trigger_intent,
+                "tier": tier,
+                "violated": violated,
+                "action": action,
+                "data_payload": json.dumps(data_payload),
+                "evaluation_time_ms": evaluation_time_ms,
+                "timestamp": datetime.utcnow().isoformat(),
+            }).execute()
+        except Exception as e:
+            logger.error(f"Failed to log policy evaluation: {e}")
         
         return audit_id
     
@@ -92,30 +86,22 @@ class PolicyAuditLogger:
         """
         extraction_id = str(uuid.uuid4())
         
-        with self.database.batch() as batch:
-            batch.insert(
-                table="PolicyExtractions",
-                columns=[
-                    "ExtractionID",
-                    "SourceName",
-                    "DocumentHash",
-                    "PoliciesExtracted",
-                    "AvgConfidence",
-                    "ModelUsed",
-                    "ExtractionTimeMs",
-                    "ExtractedAt"
-                ],
-                values=[(
-                    extraction_id,
-                    source_name,
-                    document_hash,
-                    policies_extracted,
-                    avg_confidence,
-                    model_used,
-                    extraction_time_ms,
-                    spanner.COMMIT_TIMESTAMP
-                )]
-            )
+        if not self.client:
+            return extraction_id
+        
+        try:
+            self.client.table("policy_extractions").insert({
+                "extraction_id": extraction_id,
+                "source_name": source_name,
+                "document_hash": document_hash,
+                "policies_extracted": policies_extracted,
+                "avg_confidence": avg_confidence,
+                "model_used": model_used,
+                "extraction_time_ms": extraction_time_ms,
+                "extracted_at": datetime.utcnow().isoformat(),
+            }).execute()
+        except Exception as e:
+            logger.error(f"Failed to log policy extraction: {e}")
         
         return extraction_id
     
@@ -125,36 +111,20 @@ class PolicyAuditLogger:
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """Get recent violations for a specific policy"""
-        query = """
-            SELECT AuditID, AgentID, TriggerIntent, Action, DataPayload, Timestamp
-            FROM PolicyAudits
-            WHERE PolicyID = @policy_id AND Violated = TRUE
-            ORDER BY Timestamp DESC
-            LIMIT @limit
-        """
+        if not self.client:
+            return []
         
-        with self.database.snapshot() as snapshot:
-            results = snapshot.execute_sql(
-                query,
-                params={"policy_id": policy_id, "limit": limit},
-                param_types={
-                    "policy_id": param_types.STRING,
-                    "limit": param_types.INT64
-                }
-            )
+        try:
+            response = self.client.table("policy_audits").select("*").eq(
+                "policy_id", policy_id
+            ).eq("violated", True).order(
+                "timestamp", desc=True
+            ).limit(limit).execute()
             
-            violations = []
-            for row in results:
-                violations.append({
-                    "audit_id": row[0],
-                    "agent_id": row[1],
-                    "trigger_intent": row[2],
-                    "action": row[3],
-                    "data_payload": json.loads(row[4]) if row[4] else {},
-                    "timestamp": row[5].isoformat()
-                })
-            
-            return violations
+            return response.data or []
+        except Exception as e:
+            logger.error(f"Failed to get violations by policy: {e}")
+            return []
     
     def get_violations_by_agent(
         self,
@@ -162,36 +132,20 @@ class PolicyAuditLogger:
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """Get recent violations for a specific agent"""
-        query = """
-            SELECT AuditID, PolicyID, TriggerIntent, Tier, Action, Timestamp
-            FROM PolicyAudits
-            WHERE AgentID = @agent_id AND Violated = TRUE
-            ORDER BY Timestamp DESC
-            LIMIT @limit
-        """
+        if not self.client:
+            return []
         
-        with self.database.snapshot() as snapshot:
-            results = snapshot.execute_sql(
-                query,
-                params={"agent_id": agent_id, "limit": limit},
-                param_types={
-                    "agent_id": param_types.STRING,
-                    "limit": param_types.INT64
-                }
-            )
+        try:
+            response = self.client.table("policy_audits").select("*").eq(
+                "agent_id", agent_id
+            ).eq("violated", True).order(
+                "timestamp", desc=True
+            ).limit(limit).execute()
             
-            violations = []
-            for row in results:
-                violations.append({
-                    "audit_id": row[0],
-                    "policy_id": row[1],
-                    "trigger_intent": row[2],
-                    "tier": row[3],
-                    "action": row[4],
-                    "timestamp": row[5].isoformat()
-                })
-            
-            return violations
+            return response.data or []
+        except Exception as e:
+            logger.error(f"Failed to get violations by agent: {e}")
+            return []
     
     def generate_compliance_report(
         self,
@@ -205,124 +159,58 @@ class PolicyAuditLogger:
         Returns:
             report_id
         """
-        # Query total evaluations
-        total_query = """
-            SELECT COUNT(*) as total
-            FROM PolicyAudits
-            WHERE Timestamp >= @start_time AND Timestamp < @end_time
-        """
-        
-        # Query violations
-        violations_query = """
-            SELECT COUNT(*) as violations
-            FROM PolicyAudits
-            WHERE Timestamp >= @start_time AND Timestamp < @end_time AND Violated = TRUE
-        """
-        
-        # Query top violated policies
-        top_policies_query = """
-            SELECT PolicyID, COUNT(*) as count
-            FROM PolicyAudits
-            WHERE Timestamp >= @start_time AND Timestamp < @end_time AND Violated = TRUE
-            GROUP BY PolicyID
-            ORDER BY count DESC
-            LIMIT 10
-        """
-        
-        # Query top violating agents
-        top_agents_query = """
-            SELECT AgentID, COUNT(*) as count
-            FROM PolicyAudits
-            WHERE Timestamp >= @start_time AND Timestamp < @end_time AND Violated = TRUE AND AgentID IS NOT NULL
-            GROUP BY AgentID
-            ORDER BY count DESC
-            LIMIT 10
-        """
-        
-        with self.database.snapshot() as snapshot:
-            # Get total evaluations
-            total_results = snapshot.execute_sql(
-                total_query,
-                params={"start_time": start_time, "end_time": end_time},
-                param_types={
-                    "start_time": param_types.TIMESTAMP,
-                    "end_time": param_types.TIMESTAMP
-                }
-            )
-            total_evaluations = list(total_results)[0][0]
-            
-            # Get violations
-            violations_results = snapshot.execute_sql(
-                violations_query,
-                params={"start_time": start_time, "end_time": end_time},
-                param_types={
-                    "start_time": param_types.TIMESTAMP,
-                    "end_time": param_types.TIMESTAMP
-                }
-            )
-            total_violations = list(violations_results)[0][0]
-            
-            # Get top policies
-            top_policies_results = snapshot.execute_sql(
-                top_policies_query,
-                params={"start_time": start_time, "end_time": end_time},
-                param_types={
-                    "start_time": param_types.TIMESTAMP,
-                    "end_time": param_types.TIMESTAMP
-                }
-            )
-            top_policies = [row[0] for row in top_policies_results]
-            
-            # Get top agents
-            top_agents_results = snapshot.execute_sql(
-                top_agents_query,
-                params={"start_time": start_time, "end_time": end_time},
-                param_types={
-                    "start_time": param_types.TIMESTAMP,
-                    "end_time": param_types.TIMESTAMP
-                }
-            )
-            top_agents = [row[0] for row in top_agents_results]
-        
-        # Calculate violation rate
-        violation_rate = (total_violations / total_evaluations * 100) if total_evaluations > 0 else 0.0
-        
-        # Insert report
         report_id = str(uuid.uuid4())
-        with self.database.batch() as batch:
-            batch.insert(
-                table="ComplianceReports",
-                columns=[
-                    "ReportID",
-                    "ReportType",
-                    "StartTime",
-                    "EndTime",
-                    "TotalEvaluations",
-                    "TotalViolations",
-                    "ViolationRate",
-                    "TopViolatedPolicies",
-                    "TopViolatingAgents",
-                    "GeneratedAt"
-                ],
-                values=[(
-                    report_id,
-                    report_type,
-                    start_time,
-                    end_time,
-                    total_evaluations,
-                    total_violations,
-                    violation_rate,
-                    top_policies,
-                    top_agents,
-                    spanner.COMMIT_TIMESTAMP
-                )]
-            )
+        
+        if not self.client:
+            return report_id
+        
+        try:
+            # Query all evaluations in time range
+            response = self.client.table("policy_audits").select("*").gte(
+                "timestamp", start_time.isoformat()
+            ).lt("timestamp", end_time.isoformat()).execute()
+            
+            all_evals = response.data or []
+            total_evaluations = len(all_evals)
+            violations = [e for e in all_evals if e.get("violated")]
+            total_violations = len(violations)
+            
+            # Top violated policies
+            policy_counts: Dict[str, int] = {}
+            agent_counts: Dict[str, int] = {}
+            for v in violations:
+                pid = v.get("policy_id", "unknown")
+                policy_counts[pid] = policy_counts.get(pid, 0) + 1
+                aid = v.get("agent_id")
+                if aid:
+                    agent_counts[aid] = agent_counts.get(aid, 0) + 1
+            
+            top_policies = sorted(policy_counts, key=policy_counts.get, reverse=True)[:10]
+            top_agents = sorted(agent_counts, key=agent_counts.get, reverse=True)[:10]
+            
+            violation_rate = (total_violations / total_evaluations * 100) if total_evaluations > 0 else 0.0
+            
+            # Insert report
+            self.client.table("compliance_reports").insert({
+                "report_id": report_id,
+                "report_type": report_type,
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "total_evaluations": total_evaluations,
+                "total_violations": total_violations,
+                "violation_rate": violation_rate,
+                "top_violated_policies": json.dumps(top_policies),
+                "top_violating_agents": json.dumps(top_agents),
+                "generated_at": datetime.utcnow().isoformat(),
+            }).execute()
+        except Exception as e:
+            logger.error(f"Failed to generate compliance report: {e}")
         
         return report_id
     
-    def close(self):
-        """Close Spanner client"""
-        self.client.close()
+    def close(self) -> None:
+        """Close client"""
+        self.client = None
 
 
 # Singleton instance
@@ -333,14 +221,5 @@ def get_audit_logger() -> Optional[PolicyAuditLogger]:
     """Get or create singleton audit logger"""
     global _audit_logger
     if _audit_logger is None:
-        import os
-        project_id = os.getenv("SPANNER_PROJECT_ID")
-        instance_id = os.getenv("SPANNER_INSTANCE_ID")
-        database_id = os.getenv("SPANNER_DATABASE_ID")
-        
-        if project_id and instance_id and database_id:
-            _audit_logger = PolicyAuditLogger(project_id, instance_id, database_id)
-        else:
-            print("⚠️  Spanner credentials not configured. Audit logging disabled.")
-    
+        _audit_logger = PolicyAuditLogger()
     return _audit_logger

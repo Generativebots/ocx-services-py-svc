@@ -15,12 +15,14 @@ from datetime import datetime
 import requests
 import logging
 
+import os
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration
-ACTIVITY_REGISTRY_URL = "http://localhost:8002"
-EVIDENCE_VAULT_URL = "http://localhost:8003"
+# Configuration — from environment variables
+ACTIVITY_REGISTRY_URL = os.getenv("ACTIVITY_REGISTRY_URL", "http://localhost:8002")
+EVIDENCE_VAULT_URL = os.getenv("EVIDENCE_VAULT_URL", "http://localhost:8003")
 
 @dataclass
 class ValidationRule:
@@ -46,7 +48,7 @@ class InterceptionContext:
 class ActivityRegistry:
     """Client for Activity Registry"""
     
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str) -> None:
         self.base_url = base_url
         self._cache = {}
         self._cache_ttl = 300  # 5 minutes
@@ -104,10 +106,10 @@ class ActivityRegistry:
 class EvidenceVault:
     """Client for Evidence Vault"""
     
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str) -> None:
         self.base_url = base_url
     
-    def log_violation(self, context: InterceptionContext, rule: ValidationRule, reason: str):
+    def log_violation(self, context: InterceptionContext, rule: ValidationRule, reason: str) -> None:
         """Log compliance violation to Evidence Vault"""
         try:
             evidence = {
@@ -149,7 +151,7 @@ class SocketInterceptor:
     Intercepts socket operations and applies VALIDATE rules from Activity Registry
     """
     
-    def __init__(self, tenant_id: str, agent_id: str):
+    def __init__(self, tenant_id: str, agent_id: str) -> None:
         self.tenant_id = tenant_id
         self.agent_id = agent_id
         self.activity_registry = ActivityRegistry(ACTIVITY_REGISTRY_URL)
@@ -164,7 +166,7 @@ class SocketInterceptor:
         # Start background rule refresh
         self._start_rule_refresh()
     
-    def _load_validation_rules(self):
+    def _load_validation_rules(self) -> None:
         """Load VALIDATE rules from Activity Registry"""
         logger.info(f"Loading validation rules for tenant {self.tenant_id}")
         
@@ -183,9 +185,9 @@ class SocketInterceptor:
         
         logger.info(f"Loaded {len(self.validation_rules)} validation rules")
     
-    def _start_rule_refresh(self):
+    def _start_rule_refresh(self) -> None:
         """Start background thread to refresh rules periodically"""
-        def refresh_loop():
+        def refresh_loop() -> None:
             while True:
                 time.sleep(300)  # Refresh every 5 minutes
                 self._load_validation_rules()
@@ -263,7 +265,7 @@ class SocketInterceptor:
         
         return len(violations) == 0, violations
     
-    def install(self):
+    def install(self) -> None:
         """Install socket interceptor"""
         logger.info("Installing socket interceptor")
         
@@ -272,11 +274,11 @@ class SocketInterceptor:
         class InterceptedSocket(socket.socket):
             """Socket wrapper with interception"""
             
-            def __init__(self, *args, **kwargs):
+            def __init__(self, *args, **kwargs) -> None:
                 super().__init__(*args, **kwargs)
                 self.socket_id = f"sock-{id(self)}"
             
-            def connect(self, address):
+            def connect(self, address) -> Any:
                 """Intercept connect operation"""
                 context = InterceptionContext(
                     socket_id=self.socket_id,
@@ -299,12 +301,12 @@ class SocketInterceptor:
                 logger.info(f"ALLOWED: {address}")
                 return super().connect(address)
             
-            def send(self, data, flags=0):
+            def send(self, data, flags=0) -> Any:
                 """Intercept send operation"""
                 # Could add data inspection rules here
                 return super().send(data, flags)
             
-            def recv(self, bufsize, flags=0):
+            def recv(self, bufsize, flags=0) -> Any:
                 """Intercept recv operation"""
                 # Could add data inspection rules here
                 return super().recv(bufsize, flags)
@@ -313,7 +315,7 @@ class SocketInterceptor:
         socket.socket = InterceptedSocket
         logger.info("Socket interceptor installed")
     
-    def uninstall(self):
+    def uninstall(self) -> None:
         """Uninstall socket interceptor"""
         socket.socket = self._original_socket
         logger.info("Socket interceptor uninstalled")

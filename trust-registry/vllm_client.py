@@ -10,27 +10,34 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 @dataclass
 class VLLMConfig:
     """Configuration for vLLM client"""
-    base_url: str = "http://localhost:8000"  # vLLM server URL
+    base_url: str = None  # Set from VLLM_BASE_URL env var
     model_name: str = "mistralai/Mistral-7B-Instruct-v0.2"
     temperature: float = 0.1  # Low temperature for deterministic extraction
     max_tokens: int = 2048
     timeout: int = 30
     max_retries: int = 3
 
+    def __post_init__(self) -> None:
+        if self.base_url is None:
+            self.base_url = os.getenv("VLLM_BASE_URL", "http://localhost:8000")
+
 
 class VLLMClient:
     """Production vLLM client with retry logic and error handling"""
     
-    def __init__(self, config: Optional[VLLMConfig] = None):
+    def __init__(self, config: Optional[VLLMConfig] = None) -> None:
         self.config = config or VLLMConfig()
         self._validate_connection()
     
-    def _validate_connection(self):
+    def _validate_connection(self) -> None:
         """Validate vLLM server is reachable"""
         try:
             response = requests.get(

@@ -20,7 +20,7 @@ import logging
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="OCX Jury gRPC Service")
     parser.add_argument("--port", type=int, default=int(os.getenv("JURY_PORT", "50051")))
     args = parser.parse_args()

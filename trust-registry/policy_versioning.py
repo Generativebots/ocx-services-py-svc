@@ -9,6 +9,9 @@ import hashlib
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from datetime import datetime
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -56,7 +59,7 @@ class PolicyVersionManager:
     - Audit trail of changes
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.versions: Dict[str, List[PolicyVersion]] = {}  # policy_id -> versions
     
     def create_policy(

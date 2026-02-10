@@ -1,9 +1,12 @@
 """Business Impact Estimator - ROI calculator"""
 from typing import Dict, Any
 import uuid
+import logging
+logger = logging.getLogger(__name__)
+
 
 class BusinessImpactEstimator:
-    def __init__(self, db_conn):
+    def __init__(self, db_conn) -> None:
         self.conn = db_conn
     
     def calculate_impact(self, use_case_id: str, assumptions: Dict[str, Any]) -> Dict[str, Any]:

@@ -12,6 +12,9 @@ Provides unified API for trust calculation across the OCX platform.
 
 from typing import Dict, Optional
 from datetime import datetime
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class WeightedTrustCalculator:
@@ -32,7 +35,7 @@ class WeightedTrustCalculator:
     ATTESTATION_WEIGHT = 0.20
     HISTORY_WEIGHT = 0.10
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.calculations_performed = 0
         self.avg_trust_level = 0.0
     
@@ -252,7 +255,7 @@ class WeightedTrustCalculator:
         
         return min(trust_tax, base_rate)  # Cap at base rate
     
-    def _validate_score(self, score: float, name: str):
+    def _validate_score(self, score: float, name: str) -> None:
         """Validate that a score is in valid range"""
         if not 0.0 <= score <= 1.0:
             raise ValueError(f"{name} must be between 0.0 and 1.0, got {score}")

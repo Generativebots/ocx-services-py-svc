@@ -5,11 +5,14 @@ Authority Contract Generator - Creates executable YAML contracts
 import yaml
 from typing import Dict, Any
 import uuid
+import logging
+logger = logging.getLogger(__name__)
+
 
 class AuthorityContractGenerator:
     """Generates executable authority contracts from A2A use cases"""
     
-    def __init__(self, db_conn):
+    def __init__(self, db_conn) -> None:
         self.conn = db_conn
     
     def generate_contract(self, use_case_id: str) -> Dict[str, Any]:

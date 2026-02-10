@@ -1,22 +1,19 @@
-# Python service for Cloud Run
+# Jury — gRPC service for Cloud Run
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
 
-# Cloud Run uses PORT environment variable
-ENV PORT=50051
-EXPOSE 50051
+# Cloud Run injects PORT env var; Jury uses it for gRPC
+# Cloud Run default is 8080, but we set 8000 for consistency
+ENV PORT=8000
+ENV PYTHONUNBUFFERED=1
 
-# Health check (for local testing)
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import socket; s=socket.socket(); s.connect(('localhost', ${PORT})); s.close()" || exit 1
-
-# Run the application
-CMD ["python", "trust_engine.py"]
+# Run the gRPC server via run.py (reads PORT from env)
+CMD ["python", "run.py", "--port", "8000"]

@@ -1,49 +1,43 @@
 """
-Cloud Spanner Integration for Compliance Layer
+Supabase Compliance Client
 
-This module provides Cloud Spanner integration for the compliance features.
+This module provides Supabase integration for the compliance features.
 It does NOT modify existing OCX core database tables.
 """
 
-from google.cloud import spanner
-from typing import Dict, List, Optional
-import logging
 import os
+from typing import Dict, List, Optional
+from datetime import datetime
+import logging
 
 logger = logging.getLogger(__name__)
 
 
-class ComplianceSpannerClient:
+class ComplianceClient:
     """
-    Cloud Spanner client for compliance layer tables.
+    Supabase client for compliance layer tables.
     
     Manages:
     - governance_ledger
-    - regulator_api_keys
     - policy_adjustments
     - shadow_sops
     """
     
-    def __init__(self, instance_id: str = None, database_id: str = None):
+    def __init__(self) -> None:
         """
-        Initialize Spanner client.
-        
-        Args:
-            instance_id: Spanner instance ID (or from env)
-            database_id: Spanner database ID (or from env)
+        Initialize Supabase compliance client.
         """
-        self.instance_id = instance_id or os.getenv('SPANNER_INSTANCE_ID', 'ocx-instance')
-        self.database_id = database_id or os.getenv('SPANNER_DATABASE_ID', 'ocx-db')
+        from supabase import create_client
         
-        self.client = spanner.Client()
-        self.instance = self.client.instance(self.instance_id)
-        self.database = self.instance.database(self.database_id)
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_KEY")
         
-        logger.info(f"Compliance Spanner client initialized: {self.instance_id}/{self.database_id}")
-    
-    # ========================================================================
-    # Governance Ledger
-    # ========================================================================
+        if not url or not key:
+            logger.warning("Supabase credentials not found - using in-memory mode")
+            self.client = None
+        else:
+            self.client = create_client(url, key)
+            logger.info("Compliance client initialized with Supabase")
     
     def insert_governance_event(self, event: Dict) -> bool:
         """
@@ -55,33 +49,25 @@ class ComplianceSpannerClient:
         Returns:
             bool: Success
         """
-        def insert_event(transaction):
-            transaction.insert(
-                table='governance_ledger',
-                columns=[
-                    'id', 'timestamp', 'transaction_id', 'agent_id', 'action',
-                    'policy_version', 'jury_verdict', 'entropy_score',
-                    'sop_decision', 'pid_verified', 'hash', 'previous_hash'
-                ],
-                values=[[
-                    event['id'],
-                    event['timestamp'],
-                    event['transaction_id'],
-                    event['agent_id'],
-                    event['action'],
-                    event['policy_version'],
-                    event['jury_verdict'],
-                    event.get('entropy_score'),
-                    event.get('sop_decision'),
-                    event.get('pid_verified', False),
-                    event['hash'],
-                    event['previous_hash']
-                ]]
-            )
+        if not self.client:
+            return False
         
         try:
-            self.database.run_in_transaction(insert_event)
-            logger.info(f"Inserted governance event: {event['transaction_id']}")
+            self.client.table('governance_ledger').insert({
+                'transaction_id': event.get('transaction_id'),
+                'agent_id': event.get('agent_id'),
+                'action': event.get('action'),
+                'policy_version': event.get('policy_version'),
+                'jury_verdict': event.get('jury_verdict'),
+                'entropy_score': event.get('entropy_score'),
+                'sop_decision': event.get('sop_decision'),
+                'pid_verified': event.get('pid_verified'),
+                'block_hash': event.get('hash'),
+                'previous_hash': event.get('previous_hash'),
+                'timestamp': event.get('timestamp', datetime.utcnow().isoformat()),
+            }).execute()
+            
+            logger.info(f"Governance event inserted: {event.get('transaction_id')}")
             return True
         except Exception as e:
             logger.error(f"Failed to insert governance event: {e}")
@@ -97,21 +83,17 @@ class ComplianceSpannerClient:
         Returns:
             Dict: Event data or None
         """
-        with self.database.snapshot() as snapshot:
-            results = snapshot.execute_sql(
-                """
-                SELECT * FROM governance_ledger 
-                WHERE transaction_id = @tx_id
-                LIMIT 1
-                """,
-                params={'tx_id': transaction_id},
-                param_types={'tx_id': spanner.param_types.STRING}
-            )
-            
-            for row in results:
-                return dict(row)
+        if not self.client:
+            return None
         
-        return None
+        try:
+            response = self.client.table('governance_ledger').select('*').eq(
+                'transaction_id', transaction_id
+            ).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            logger.error(f"Failed to get governance event: {e}")
+            return None
     
     def get_agent_audit_trail(self, agent_id: str, start_date: str = None, end_date: str = None) -> List[Dict]:
         """
@@ -125,28 +107,22 @@ class ComplianceSpannerClient:
         Returns:
             List[Dict]: Audit trail
         """
-        query = """
-            SELECT * FROM governance_ledger 
-            WHERE agent_id = @agent_id
-        """
-        params = {'agent_id': agent_id}
-        param_types = {'agent_id': spanner.param_types.STRING}
+        if not self.client:
+            return []
         
-        if start_date:
-            query += " AND timestamp >= @start_date"
-            params['start_date'] = start_date
-            param_types['start_date'] = spanner.param_types.TIMESTAMP
-        
-        if end_date:
-            query += " AND timestamp <= @end_date"
-            params['end_date'] = end_date
-            param_types['end_date'] = spanner.param_types.TIMESTAMP
-        
-        query += " ORDER BY timestamp DESC"
-        
-        with self.database.snapshot() as snapshot:
-            results = snapshot.execute_sql(query, params=params, param_types=param_types)
-            return [dict(row) for row in results]
+        try:
+            query = self.client.table('governance_ledger').select('*').eq('agent_id', agent_id)
+            
+            if start_date:
+                query = query.gte('timestamp', start_date)
+            if end_date:
+                query = query.lte('timestamp', end_date)
+            
+            response = query.order('timestamp', desc=True).execute()
+            return response.data or []
+        except Exception as e:
+            logger.error(f"Failed to get audit trail: {e}")
+            return []
     
     def verify_chain(self) -> bool:
         """
@@ -155,23 +131,27 @@ class ComplianceSpannerClient:
         Returns:
             bool: True if valid
         """
-        with self.database.snapshot() as snapshot:
-            results = snapshot.execute_sql(
-                "SELECT * FROM governance_ledger ORDER BY timestamp"
-            )
+        if not self.client:
+            return True
+        
+        try:
+            response = self.client.table('governance_ledger').select('*').order('timestamp').execute()
+            entries = response.data or []
+            
+            if not entries:
+                return True
             
             prev_hash = "0" * 64
-            for row in results:
-                if row['previous_hash'] != prev_hash:
-                    logger.error(f"Chain break at {row['transaction_id']}")
+            for entry in entries:
+                if entry.get('previous_hash') != prev_hash:
+                    logger.error(f"Chain break at {entry.get('transaction_id')}")
                     return False
-                prev_hash = row['hash']
-        
-        return True
-    
-    # ========================================================================
-    # Policy Adjustments
-    # ========================================================================
+                prev_hash = entry.get('block_hash', '')
+            
+            return True
+        except Exception as e:
+            logger.error(f"Chain verification failed: {e}")
+            return False
     
     def insert_policy_adjustment(self, adjustment: Dict) -> bool:
         """
@@ -183,29 +163,19 @@ class ComplianceSpannerClient:
         Returns:
             bool: Success
         """
-        def insert_adj(transaction):
-            transaction.insert(
-                table='policy_adjustments',
-                columns=[
-                    'id', 'policy_id', 'adjustment_type', 'old_value',
-                    'new_value', 'reason', 'approved_by', 'timestamp', 'transaction_id'
-                ],
-                values=[[
-                    adjustment['id'],
-                    adjustment['policy_id'],
-                    adjustment['adjustment_type'],
-                    adjustment.get('old_value'),
-                    adjustment.get('new_value'),
-                    adjustment.get('reason'),
-                    adjustment['approved_by'],
-                    adjustment['timestamp'],
-                    adjustment.get('transaction_id')
-                ]]
-            )
+        if not self.client:
+            return False
         
         try:
-            self.database.run_in_transaction(insert_adj)
-            logger.info(f"Inserted policy adjustment: {adjustment['policy_id']}")
+            self.client.table('policy_adjustments').insert({
+                'adjustment_id': adjustment.get('adjustment_id'),
+                'policy_id': adjustment.get('policy_id'),
+                'previous_threshold': adjustment.get('previous_threshold'),
+                'new_threshold': adjustment.get('new_threshold'),
+                'reason': adjustment.get('reason'),
+                'adjusted_by': adjustment.get('adjusted_by'),
+                'timestamp': adjustment.get('timestamp', datetime.utcnow().isoformat()),
+            }).execute()
             return True
         except Exception as e:
             logger.error(f"Failed to insert policy adjustment: {e}")
@@ -221,21 +191,17 @@ class ComplianceSpannerClient:
         Returns:
             List[Dict]: Adjustment history
         """
-        with self.database.snapshot() as snapshot:
-            results = snapshot.execute_sql(
-                """
-                SELECT * FROM policy_adjustments 
-                WHERE policy_id = @policy_id
-                ORDER BY timestamp DESC
-                """,
-                params={'policy_id': policy_id},
-                param_types={'policy_id': spanner.param_types.STRING}
-            )
-            return [dict(row) for row in results]
-    
-    # ========================================================================
-    # Shadow SOPs
-    # ========================================================================
+        if not self.client:
+            return []
+        
+        try:
+            response = self.client.table('policy_adjustments').select('*').eq(
+                'policy_id', policy_id
+            ).order('timestamp', desc=True).execute()
+            return response.data or []
+        except Exception as e:
+            logger.error(f"Failed to get policy adjustment history: {e}")
+            return []
     
     def insert_shadow_sop(self, shadow_sop: Dict) -> bool:
         """
@@ -247,33 +213,19 @@ class ComplianceSpannerClient:
         Returns:
             bool: Success
         """
-        def insert_sop(transaction):
-            transaction.insert(
-                table='shadow_sops',
-                columns=[
-                    'id', 'rule', 'confidence', 'category', 'source', 'channel',
-                    'author', 'original_text', 'suggested_logic', 'suggested_action',
-                    'status', 'discovered_at'
-                ],
-                values=[[
-                    shadow_sop['id'],
-                    shadow_sop['rule'],
-                    shadow_sop['confidence'],
-                    shadow_sop.get('category'),
-                    shadow_sop['source'],
-                    shadow_sop.get('channel'),
-                    shadow_sop.get('author'),
-                    shadow_sop['original_text'],
-                    shadow_sop.get('suggested_logic'),
-                    shadow_sop.get('suggested_action'),
-                    shadow_sop['status'],
-                    shadow_sop['discovered_at']
-                ]]
-            )
+        if not self.client:
+            return False
         
         try:
-            self.database.run_in_transaction(insert_sop)
-            logger.info(f"Inserted shadow SOP: {shadow_sop['id']}")
+            self.client.table('shadow_sops').insert({
+                'sop_id': shadow_sop.get('sop_id'),
+                'source': shadow_sop.get('source'),
+                'channel': shadow_sop.get('channel'),
+                'detected_pattern': shadow_sop.get('detected_pattern'),
+                'confidence': shadow_sop.get('confidence'),
+                'status': shadow_sop.get('status', 'pending'),
+                'timestamp': shadow_sop.get('timestamp', datetime.utcnow().isoformat()),
+            }).execute()
             return True
         except Exception as e:
             logger.error(f"Failed to insert shadow SOP: {e}")
@@ -286,15 +238,17 @@ class ComplianceSpannerClient:
         Returns:
             List[Dict]: Pending shadow SOPs
         """
-        with self.database.snapshot() as snapshot:
-            results = snapshot.execute_sql(
-                """
-                SELECT * FROM shadow_sops 
-                WHERE status = 'pending'
-                ORDER BY discovered_at DESC
-                """
-            )
-            return [dict(row) for row in results]
+        if not self.client:
+            return []
+        
+        try:
+            response = self.client.table('shadow_sops').select('*').eq(
+                'status', 'pending'
+            ).order('timestamp', desc=True).execute()
+            return response.data or []
+        except Exception as e:
+            logger.error(f"Failed to get pending shadow SOPs: {e}")
+            return []
     
     def update_shadow_sop_status(self, sop_id: str, status: str, reviewed_by: str, reason: str = None) -> bool:
         """
@@ -309,36 +263,35 @@ class ComplianceSpannerClient:
         Returns:
             bool: Success
         """
-        def update_status(transaction):
-            transaction.update(
-                table='shadow_sops',
-                columns=['id', 'status', 'reviewed_by', 'reviewed_at', 'rejection_reason'],
-                values=[[
-                    sop_id,
-                    status,
-                    reviewed_by,
-                    spanner.COMMIT_TIMESTAMP,
-                    reason
-                ]]
-            )
+        if not self.client:
+            return False
         
         try:
-            self.database.run_in_transaction(update_status)
-            logger.info(f"Updated shadow SOP {sop_id}: {status}")
+            update_data = {
+                'status': status,
+                'reviewed_by': reviewed_by,
+                'reviewed_at': datetime.utcnow().isoformat(),
+            }
+            if reason:
+                update_data['rejection_reason'] = reason
+            
+            self.client.table('shadow_sops').update(update_data).eq(
+                'sop_id', sop_id
+            ).execute()
             return True
         except Exception as e:
-            logger.error(f"Failed to update shadow SOP: {e}")
+            logger.error(f"Failed to update shadow SOP status: {e}")
             return False
 
 
 # Example usage
 if __name__ == "__main__":
-    client = ComplianceSpannerClient()
+    logging.basicConfig(level=logging.INFO)
+    
+    client = ComplianceClient()
     
     # Test governance event insert
     event = {
-        'id': 'evt-001',
-        'timestamp': '2026-01-21T08:00:00Z',
         'transaction_id': 'tx-001',
         'agent_id': 'PROCUREMENT_BOT',
         'action': 'execute_payment(amount=1500)',
@@ -352,4 +305,4 @@ if __name__ == "__main__":
     }
     
     success = client.insert_governance_event(event)
-    print(f"Insert success: {success}")
+    logger.info(f"Insert success: {success}")

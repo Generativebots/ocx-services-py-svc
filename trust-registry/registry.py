@@ -19,7 +19,7 @@ class Registry:
     Backend: Supabase (Postgres) + Redis (Cache/PubSub).
     Multi-Tenancy: Enforced via `tenant_id` and RLS.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         # 1. Supabase Init
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
@@ -39,7 +39,7 @@ class Registry:
             self.hydrate_cache()
             # self.start_realtime_listener() # Requires asyncio loop handling
 
-    def hydrate_cache(self):
+    def hydrate_cache(self) -> None:
         """
         Hydrates Redis Bloom Filters from Supabase on startup.
         """
@@ -67,7 +67,7 @@ class Registry:
         except Exception as e:
             logger.error(f"Failed to hydrate cache: {e}")
 
-    def register_agent(self, agent_json: dict, tenant_id: str):
+    def register_agent(self, agent_json: dict, tenant_id: str) -> Any:
         """
         Registers an agent using the full OCX JSON Schema into Supabase.
         """
@@ -104,7 +104,7 @@ class Registry:
         
         return "mock-id"
 
-    def add_rule(self, natural_language: str, logic_json: dict, tenant_id: str, priority=1):
+    def add_rule(self, natural_language: str, logic_json: dict, tenant_id: str, priority=1) -> Any:
         rule_id = str(uuid.uuid4())
         status = "Active"
         
@@ -136,7 +136,7 @@ class Registry:
             
         return rule_id
 
-    def get_agent_profile(self, agent_id: str, tenant_id: str):
+    def get_agent_profile(self, agent_id: str, tenant_id: str) -> None:
         if not self.supabase:
             return None
             

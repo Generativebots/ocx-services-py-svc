@@ -5,17 +5,17 @@ Immutable audit trail and compliance layer for OCX
 
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 import hashlib
 import json
+import logging
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from elasticsearch import Elasticsearch
-import uuid
 
 app = FastAPI(title="Evidence Vault API", version="1.0.0")
 
@@ -29,7 +29,7 @@ app.add_middleware(
 )
 
 # Database connection
-def get_db():
+def get_db() -> None:
     conn = psycopg2.connect(
         host=os.getenv('DB_HOST', 'localhost'),
         port=os.getenv('DB_PORT', '5432'),
@@ -42,8 +42,36 @@ def get_db():
     finally:
         conn.close()
 
-# Elasticsearch connection
-es = Elasticsearch([os.getenv('ELASTICSEARCH_URL', 'http://localhost:9200')])
+# Elasticsearch connection — T10 fix: Lazy init with health check
+_es_client = None
+_es_healthy = False
+
+def get_es() -> Any:
+    """Lazily initialize and health-check Elasticsearch.
+    T10 fix: Returns None if ES is unreachable — API degrades to PG-only mode.
+    """
+    global _es_client, _es_healthy
+    if _es_client is None:
+        try:
+            _es_client = Elasticsearch(
+                [os.getenv('ELASTICSEARCH_URL', 'http://localhost:9200')],
+                request_timeout=5,
+                max_retries=1,
+            )
+            if _es_client.ping():
+                _es_healthy = True
+                logging.getLogger(__name__).info("✅ Elasticsearch connected")
+            else:
+                _es_healthy = False
+                logging.getLogger(__name__).warning(
+                    "⚠️  Elasticsearch unreachable — operating in PG-only mode"
+                )
+        except Exception as e:
+            _es_healthy = False
+            logging.getLogger(__name__).warning(
+                "⚠️  Elasticsearch init failed (%s) — operating in PG-only mode", e
+            )
+    return _es_client if _es_healthy else None
 
 # Enums
 class AgentType(str, Enum):
@@ -168,7 +196,7 @@ def verify_agent_authorization(agent_id: str, activity_id: str) -> bool:
 # ============================================================================
 
 @app.post("/api/v1/evidence", response_model=EvidenceResponse)
-async def create_evidence(evidence: EvidenceCreate, conn = Depends(get_db)):
+async def create_evidence(evidence: EvidenceCreate, conn = Depends(get_db)) -> None:
     """
     Create immutable evidence record
     
@@ -239,24 +267,26 @@ async def create_evidence(evidence: EvidenceCreate, conn = Depends(get_db)):
     result = cursor.fetchone()
     conn.commit()
     
-    # Index in Elasticsearch
-    try:
-        es.index(
-            index='evidence',
-            id=str(result['evidence_id']),
-            document={
-                **result,
-                'created_at': result['created_at'].isoformat(),
-                'event_data': evidence.event_data,
-            }
-        )
-    except Exception as e:
-        print(f"Elasticsearch indexing failed: {e}")
+    # T10 fix: Index in Elasticsearch (best-effort, degrades gracefully)
+    es = get_es()
+    if es is not None:
+        try:
+            es.index(
+                index='evidence',
+                id=str(result['evidence_id']),
+                document={
+                    **result,
+                    'created_at': result['created_at'].isoformat(),
+                    'event_data': evidence.event_data,
+                }
+            )
+        except Exception as e:
+            logging.getLogger(__name__).warning("ES indexing skipped: %s", e)
     
     return EvidenceResponse(**result)
 
 @app.get("/api/v1/evidence/{evidence_id}", response_model=EvidenceResponse)
-async def get_evidence(evidence_id: str, conn = Depends(get_db)):
+async def get_evidence(evidence_id: str, conn = Depends(get_db)) -> Any:
     """Get evidence by ID"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -283,7 +313,7 @@ async def list_evidence(
     limit: int = Query(100, le=1000),
     offset: int = 0,
     conn = Depends(get_db)
-):
+) -> None:
     """
     List evidence with filters
     
@@ -361,7 +391,7 @@ async def create_attestation(
     evidence_id: str,
     attestation: AttestationCreate,
     conn = Depends(get_db)
-):
+) -> Any:
     """
     Create trust attestation for evidence
     
@@ -402,7 +432,7 @@ async def create_attestation(
     return AttestationResponse(**result)
 
 @app.get("/api/v1/evidence/{evidence_id}/attestations", response_model=List[AttestationResponse])
-async def get_attestations(evidence_id: str, conn = Depends(get_db)):
+async def get_attestations(evidence_id: str, conn = Depends(get_db)) -> list:
     """Get all attestations for evidence"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -420,7 +450,7 @@ async def get_attestations(evidence_id: str, conn = Depends(get_db)):
 # ============================================================================
 
 @app.post("/api/v1/evidence/{evidence_id}/verify")
-async def verify_evidence(evidence_id: str, conn = Depends(get_db)):
+async def verify_evidence(evidence_id: str, conn = Depends(get_db)) -> None:
     """
     Manually trigger evidence verification
     
@@ -470,7 +500,7 @@ async def verify_evidence(evidence_id: str, conn = Depends(get_db)):
     }
 
 @app.get("/api/v1/evidence/{evidence_id}/chain")
-async def get_evidence_chain(evidence_id: str, conn = Depends(get_db)):
+async def get_evidence_chain(evidence_id: str, conn = Depends(get_db)) -> dict:
     """Get evidence chain for tamper detection"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -494,7 +524,7 @@ async def generate_compliance_report(
     end_date: datetime,
     report_type: str = "DAILY",
     conn = Depends(get_db)
-):
+) -> None:
     """Generate compliance report for date range"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -564,7 +594,7 @@ async def list_compliance_reports(
     report_type: Optional[str] = None,
     limit: int = 100,
     conn = Depends(get_db)
-):
+) -> Any:
     """List compliance reports"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -595,7 +625,7 @@ async def get_evidence_stats(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     conn = Depends(get_db)
-):
+) -> Any:
     """Get evidence statistics"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -633,8 +663,14 @@ async def search_evidence(
     q: str,
     tenant_id: Optional[str] = None,
     limit: int = 100
-):
+) -> dict:
     """Full-text search in Elasticsearch"""
+    es = get_es()
+    if es is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Search unavailable — Elasticsearch is not connected. Use list API with filters instead."
+        )
     try:
         query = {
             "bool": {
@@ -665,26 +701,24 @@ async def search_evidence(
 # ============================================================================
 
 @app.get("/health")
-async def health(conn = Depends(get_db)):
+async def health(conn = Depends(get_db)) -> dict:
     """Health check"""
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT 1")
         db_healthy = True
-    except:
+    except Exception:
         db_healthy = False
     
-    try:
-        es.ping()
-        es_healthy = True
-    except:
-        es_healthy = False
+    # T10 fix: Use lazy ES health check
+    es = get_es()
+    es_healthy = es is not None
     
     return {
         "status": "healthy" if (db_healthy and es_healthy) else "degraded",
         "service": "evidence-vault",
         "database": "healthy" if db_healthy else "unhealthy",
-        "elasticsearch": "healthy" if es_healthy else "unhealthy",
+        "elasticsearch": "healthy" if es_healthy else "unavailable (PG-only mode)",
         "timestamp": datetime.utcnow().isoformat()
     }
 

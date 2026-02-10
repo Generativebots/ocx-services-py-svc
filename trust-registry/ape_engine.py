@@ -15,8 +15,8 @@ router = APIRouter()
 
 # --- vLLM Client (Real) ---
 class VLLMClient:
-    def __init__(self, base_url="http://localhost:8000/v1"):
-        self.base_url = base_url
+    def __init__(self, base_url=None) -> None:
+        self.base_url = base_url or os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
         self.api_key = os.getenv("VLLM_API_KEY", "EMPTY")
 
     async def generate_json(self, prompt: str, schema: dict) -> list:
@@ -93,7 +93,7 @@ class PolicyObject(BaseModel):
     logic_gate: Optional[LogicGate] = None
 
 @router.post("/extract", response_model=List[PolicyObject])
-async def extract_rules(req: ExtractRequest):
+async def extract_rules(req: ExtractRequest) -> None:
     """
     APE Engine V2: Recursive Semantic Parsing + Real vLLM Inference.
     """

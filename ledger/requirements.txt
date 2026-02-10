@@ -3,7 +3,6 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 grpcio>=1.60.0
 grpcio-tools>=1.60.0
-google-cloud-spanner>=3.40.0
 reportlab>=4.0.0
 supabase>=2.3.0
 python-dotenv>=1.0.0

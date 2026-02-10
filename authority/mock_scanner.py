@@ -6,11 +6,14 @@ Returns pre-defined authority gaps based on document type
 import uuid
 from typing import Dict, List, Any
 from datetime import datetime
+import logging
+logger = logging.getLogger(__name__)
+
 
 class MockScanner:
     """Mock scanner that returns pre-defined gaps for demo scenarios"""
     
-    def __init__(self, db_conn):
+    def __init__(self, db_conn) -> None:
         self.conn = db_conn
         self.scenarios = self._load_scenarios()
     
@@ -261,3 +264,51 @@ class MockScanner:
         
         cursor.close()
         return gaps
+
+    def get_gap_by_id(self, gap_id: str) -> Dict[str, Any]:
+        """Get a specific authority gap by ID"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT gap_id, gap_type, severity, decision_point,
+                   current_authority_holder, execution_system,
+                   accountability_gap, override_frequency,
+                   time_sensitivity, a2a_candidacy_score, status
+            FROM authority_gaps
+            WHERE gap_id = %s
+        """, (gap_id,))
+        
+        row = cursor.fetchone()
+        cursor.close()
+        
+        if not row:
+            return None
+        
+        return {
+            'gap_id': str(row[0]),
+            'gap_type': row[1],
+            'severity': row[2],
+            'decision_point': row[3],
+            'current_authority_holder': row[4],
+            'execution_system': row[5],
+            'accountability_gap': row[6],
+            'override_frequency': row[7],
+            'time_sensitivity': row[8],
+            'a2a_candidacy_score': float(row[9]),
+            'status': row[10]
+        }
+
+    def update_gap_status(self, gap_id: str, new_status: str) -> bool:
+        """Update the status of an authority gap"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE authority_gaps
+            SET status = %s, updated_at = NOW()
+            WHERE gap_id = %s
+            RETURNING gap_id
+        """, (new_status, gap_id))
+        
+        updated = cursor.fetchone() is not None
+        self.conn.commit()
+        cursor.close()
+        return updated
+

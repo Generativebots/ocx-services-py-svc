@@ -11,6 +11,9 @@ registry = Registry()
 # -- Models --
 
 import hashlib
+import logging
+logger = logging.getLogger(__name__)
+
 
 # -- Models --
 
@@ -40,7 +43,7 @@ class DeployRuleRequest(BaseModel):
 # -- Endpoints --
 
 @router.post("/agents", status_code=201)
-def register_agent(req: RegisterAgentRequest):
+def register_agent(req: RegisterAgentRequest) -> dict:
     # 1. Capability Hash Verification
     provided_hash = req.security_handshake.get("capability_hash")
     
@@ -60,7 +63,7 @@ def register_agent(req: RegisterAgentRequest):
 
 
 @router.get("/agents")
-def list_agents(tenant_id: str):
+def list_agents(tenant_id: str) -> Any:
     # TODO: Filter by tenant in registry.list_agents (needs update there too if not present)
     # For now, assuming registry handles it or we need to add it.
     # Registry signature doesn't show list_agents taking tenant_id in previous view, let's assume it returns all and we filter, or better, update registry.
@@ -68,7 +71,7 @@ def list_agents(tenant_id: str):
     return registry.list_agents(tenant_id)
 
 @router.post("/rules/draft")
-def draft_rule(req: DraftRuleRequest):
+def draft_rule(req: DraftRuleRequest) -> dict:
     """
     Simulates Gemini 2.0 translating Natural Language to JSON Rule Logic.
     """
@@ -110,17 +113,17 @@ def draft_rule(req: DraftRuleRequest):
     return {"natural_language": req.natural_language, "generated_logic": rule_logic, "tenant_id": req.tenant_id}
 
 @router.post("/rules")
-def deploy_rule(req: DeployRuleRequest):
+def deploy_rule(req: DeployRuleRequest) -> dict:
     # Correctly pass tenant_id as 3rd arg
     rule_id = registry.add_rule(req.natural_language, req.logic_json, req.tenant_id, req.priority)
     return {"rule_id": rule_id, "status": "Active", "tenant_id": req.tenant_id}
 
 @router.get("/rules")
-def get_rules():
+def get_rules() -> Any:
     return registry.get_active_rules()
 
 @router.post("/agents/{agent_id}/eject")
-def eject_agent_endpoint(agent_id: str, req: dict):
+def eject_agent_endpoint(agent_id: str, req: dict) -> dict:
     """
     Emergency Kill Switch endpoint.
     Requires tenant_id in body for verification.

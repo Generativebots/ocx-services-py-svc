@@ -16,6 +16,8 @@ from scanner import AuthorityGapScanner
 from mock_scanner import MockScanner
 from use_case_generator import A2AUseCaseGenerator
 from impact_estimator import BusinessImpactEstimator
+import logging
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Authority Discovery API", version="1.0.0")
 
@@ -145,7 +147,7 @@ async def scan_document(
     company_id: str,
     doc_type: str,
     file: UploadFile = File(...)
-):
+) -> Any:
     """
     Upload and scan a document for authority gaps
     
@@ -182,7 +184,7 @@ async def get_gaps(
     status: Optional[str] = None,
     severity: Optional[str] = None,
     limit: int = 100
-):
+) -> Any:
     """
     Get all authority gaps for a company
     
@@ -210,23 +212,27 @@ async def get_gaps(
     )
 
 @app.get("/api/v1/authority/gaps/{gap_id}", response_model=AuthorityGap)
-async def get_gap(gap_id: str):
+async def get_gap(gap_id: str) -> Any:
     """Get a specific authority gap by ID"""
-    # TODO: Implement get_gap_by_id in scanner
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+    gap = scanner.get_gap_by_id(gap_id)
+    if not gap:
+        raise HTTPException(status_code=404, detail=f"Gap {gap_id} not found")
+    return AuthorityGap(**gap)
 
 @app.put("/api/v1/authority/gaps/{gap_id}/status")
-async def update_gap_status(gap_id: str, status: str):
+async def update_gap_status(gap_id: str, status: str) -> dict:
     """Update the status of an authority gap"""
-    # TODO: Implement update_gap_status in scanner
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+    updated = scanner.update_gap_status(gap_id, status)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Gap {gap_id} not found")
+    return {"gap_id": gap_id, "status": status, "message": "Status updated"}
 
 # ============================================================================
 # A2A USE CASES ENDPOINTS
 # ============================================================================
 
 @app.post("/api/v1/a2a/use-cases/generate", response_model=UseCase)
-async def generate_use_case(request: GenerateUseCaseRequest):
+async def generate_use_case(request: GenerateUseCaseRequest) -> Any:
     """
     Generate an A2A use case from an authority gap
     
@@ -265,7 +271,7 @@ async def generate_use_case(request: GenerateUseCaseRequest):
 async def get_use_cases(
     company_id: str = "company-demo",
     pattern_type: Optional[str] = None
-):
+) -> Any:
     """
     Get all A2A use cases for a company
     
@@ -300,7 +306,7 @@ async def get_use_cases(
         raise HTTPException(status_code=500, detail=f"Failed to fetch use cases: {str(e)}")
 
 @app.get("/api/v1/a2a/use-cases/{use_case_id}", response_model=UseCase)
-async def get_use_case(use_case_id: str, company_id: str = "company-demo"):
+async def get_use_case(use_case_id: str, company_id: str = "company-demo") -> Any:
     """Get a specific A2A use case by ID"""
     try:
         use_cases = use_case_generator.get_use_cases(company_id)
@@ -331,7 +337,7 @@ async def get_use_case(use_case_id: str, company_id: str = "company-demo"):
 # ============================================================================
 
 @app.post("/api/v1/a2a/simulator/run", response_model=SimulationResult)
-async def run_simulation(request: SimulateRequest):
+async def run_simulation(request: SimulateRequest) -> None:
     """
     Run a what-if simulation for an A2A use case
     
@@ -344,6 +350,7 @@ async def run_simulation(request: SimulateRequest):
     try:
         import time
         import random
+
         
         simulation_id = str(uuid.uuid4())
         start_time = time.time()
@@ -422,7 +429,7 @@ async def run_simulation(request: SimulateRequest):
         raise HTTPException(status_code=500, detail=f"Simulation failed: {str(e)}")
 
 @app.get("/api/v1/a2a/simulator/results/{simulation_id}", response_model=SimulationResult)
-async def get_simulation_result(simulation_id: str):
+async def get_simulation_result(simulation_id: str) -> Any:
     """Get simulation results by ID"""
     try:
         cursor = db_conn.cursor()
@@ -459,7 +466,7 @@ async def get_simulation_result(simulation_id: str):
 # ============================================================================
 
 @app.post("/api/v1/a2a/impact/estimate", response_model=ImpactEstimate)
-async def estimate_impact(request: ImpactEstimateRequest):
+async def estimate_impact(request: ImpactEstimateRequest) -> Any:
     """
     Calculate business impact and ROI for an A2A use case
     
@@ -476,7 +483,7 @@ async def estimate_impact(request: ImpactEstimateRequest):
         raise HTTPException(status_code=500, detail=f"Failed to estimate impact: {str(e)}")
 
 @app.get("/api/v1/a2a/impact/{use_case_id}", response_model=ImpactEstimate)
-async def get_impact_estimate(use_case_id: str):
+async def get_impact_estimate(use_case_id: str) -> Any:
     """Get the most recent impact estimate for a use case"""
     try:
         cursor = db_conn.cursor()
@@ -522,7 +529,7 @@ async def get_impact_estimate(use_case_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to fetch impact estimate: {str(e)}")
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> dict:
     """Health check endpoint"""
     return {"status": "healthy", "service": "authority-discovery"}
 

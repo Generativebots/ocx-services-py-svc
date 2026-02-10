@@ -1,12 +1,17 @@
 import redis
 import os
+import logging
+logger = logging.getLogger(__name__)
+
 
 class EnforcementEngine:
-    def __init__(self, host='localhost', port=6379, db=0):
+    def __init__(self, host=None, port=None, db=0) -> None:
+        host = host or os.getenv("REDIS_HOST", "localhost")
+        port = port or int(os.getenv("REDIS_PORT", "6379"))
         self.r = redis.Redis(host=host, port=port, db=db, decode_responses=True)
         self.enforce_script_sha = self._load_script()
 
-    def _load_script(self):
+    def _load_script(self) -> Any:
         script_path = os.path.join(os.path.dirname(__file__), 'lua/enforce_policy.lua')
         try:
             with open(script_path, 'r') as f:
@@ -16,7 +21,7 @@ class EnforcementEngine:
             print(f"Warning: Redis not reachable or script missing. Mocking mode. Error: {e}")
             return None
 
-    def register_policy(self, policy_id: str, threshold: float, action: str, operator: str = ">"):
+    def register_policy(self, policy_id: str, threshold: float, action: str, operator: str = ">") -> bool:
         """
         Hot-loads a policy into Redis hash.
         """
@@ -27,7 +32,7 @@ class EnforcementEngine:
                 "logic_operator": operator
             })
             return True
-        except:
+        except Exception:
             return False
 
     def authorize_action(self, policy_id: str, attribute: str, value: float) -> str:

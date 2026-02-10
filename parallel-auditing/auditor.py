@@ -21,12 +21,14 @@ import numpy as np
 from scipy import stats
 import logging
 
+import os
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration
-EVIDENCE_VAULT_URL = "http://localhost:8003"
-ACTIVITY_REGISTRY_URL = "http://localhost:8002"
+# Configuration — from environment variables
+EVIDENCE_VAULT_URL = os.getenv("EVIDENCE_VAULT_URL", "http://localhost:8003")
+ACTIVITY_REGISTRY_URL = os.getenv("ACTIVITY_REGISTRY_URL", "http://localhost:8002")
 
 class AttestationStatus(str, Enum):
     APPROVED = "APPROVED"
@@ -60,7 +62,7 @@ class JuryVerifier:
     Consensus threshold determines approval
     """
     
-    def __init__(self, num_agents: int = 10, consensus_threshold: float = 0.75):
+    def __init__(self, num_agents: int = 10, consensus_threshold: float = 0.75) -> None:
         self.num_agents = num_agents
         self.consensus_threshold = consensus_threshold
         self.agent_ids = [f"jury-agent-{i}" for i in range(num_agents)]
@@ -156,10 +158,19 @@ class JuryVerifier:
         if evidence.policy_reference:
             score += 0.1
         
-        # Add some randomness (simulating agent judgment)
-        score += random.uniform(-0.1, 0.1)
+        # T12 fix: Deterministic variance derived from evidence hash
+        # Use evidence hash to produce a stable offset in [-0.1, 0.1]
+        # This ensures reproducible scores while still providing variance
+        hash_seed = hashlib.sha256(
+            f"{evidence.evidence_id}:{evidence.hash}".encode()
+        ).digest()
+        # Map first 4 bytes to float in [-0.1, 0.1]
+        hash_val = int.from_bytes(hash_seed[:4], "big") / 0xFFFFFFFF  # [0, 1]
+        deterministic_offset = (hash_val * 0.2) - 0.1  # [-0.1, 0.1]
+        score += deterministic_offset
         
         return max(0.0, min(1.0, score))
+
 
 # ============================================================================
 # ENTROPY VERIFIER - Randomness & Bias Detection
@@ -175,7 +186,7 @@ class EntropyVerifier:
     - Randomness quality
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.history_window = 100  # Number of recent decisions to analyze
         self.decision_history = []
     
@@ -309,7 +320,7 @@ class EscrowVerifier:
     - Zero-knowledge proofs (simulated)
     """
     
-    def __init__(self, escrow_id: str = "escrow-validator"):
+    def __init__(self, escrow_id: str = "escrow-validator") -> None:
         self.escrow_id = escrow_id
         self.private_key = self._generate_key()
     
@@ -419,7 +430,7 @@ class ParallelAuditor:
     - Escrow (cryptographic validation)
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.jury = JuryVerifier(num_agents=10, consensus_threshold=0.75)
         self.entropy = EntropyVerifier()
         self.escrow = EscrowVerifier()
@@ -558,13 +569,13 @@ class ContinuousAuditingService:
     Monitors Evidence Vault for new evidence and triggers parallel audits
     """
     
-    def __init__(self, poll_interval: int = 60):
+    def __init__(self, poll_interval: int = 60) -> None:
         self.poll_interval = poll_interval
         self.auditor = ParallelAuditor()
         self.last_audit_time = datetime.utcnow()
         self.running = False
     
-    async def start(self):
+    async def start(self) -> None:
         """Start continuous auditing service"""
         self.running = True
         logger.info("Continuous auditing service started")
@@ -577,12 +588,12 @@ class ContinuousAuditingService:
             
             await asyncio.sleep(self.poll_interval)
     
-    def stop(self):
+    def stop(self) -> None:
         """Stop continuous auditing service"""
         self.running = False
         logger.info("Continuous auditing service stopped")
     
-    async def _audit_cycle(self):
+    async def _audit_cycle(self) -> None:
         """Single audit cycle"""
         # Fetch unverified evidence
         unverified = await self._fetch_unverified_evidence()
@@ -624,7 +635,7 @@ class ContinuousAuditingService:
 # USAGE EXAMPLE
 # ============================================================================
 
-async def main():
+async def main() -> None:
     """Example usage of parallel auditing"""
     
     # Create auditor
@@ -660,7 +671,7 @@ async def main():
     except Exception as e:
         print(f"Audit failed: {e}")
 
-async def run_continuous_service():
+async def run_continuous_service() -> None:
     """Run continuous auditing service"""
     service = ContinuousAuditingService(poll_interval=60)
     

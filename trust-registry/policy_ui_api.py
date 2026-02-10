@@ -13,6 +13,9 @@ from policy_versioning import PolicyVersionManager
 from conflict_detector import ConflictDetector
 from policy_testing import PolicyTestGenerator, PolicySimulator
 from ape_metrics import *
+import logging
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter()
 
@@ -62,7 +65,7 @@ class PolicyResponse(BaseModel):
 # --- Endpoints ---
 
 @router.get("/policies")
-def list_policies(tier: Optional[str] = None):
+def list_policies(tier: Optional[str] = None) -> dict:
     """List all active policies"""
     policies = []
     for policy in policy_hierarchy.policies.values():
@@ -75,7 +78,7 @@ def list_policies(tier: Optional[str] = None):
 
 
 @router.post("/policies", response_model=PolicyResponse)
-def create_policy(req: PolicyCreateRequest):
+def create_policy(req: PolicyCreateRequest) -> Any:
     """Create new policy"""
     # Create in version manager
     version = version_manager.create_policy(
@@ -122,7 +125,7 @@ def create_policy(req: PolicyCreateRequest):
 
 
 @router.put("/policies/{policy_id}")
-def update_policy(policy_id: str, req: PolicyUpdateRequest):
+def update_policy(policy_id: str, req: PolicyUpdateRequest) -> dict:
     """Update existing policy (creates new version)"""
     version = version_manager.update_policy(
         policy_id=policy_id,
@@ -141,7 +144,7 @@ def update_policy(policy_id: str, req: PolicyUpdateRequest):
 
 
 @router.get("/policies/{policy_id}/versions")
-def get_version_history(policy_id: str):
+def get_version_history(policy_id: str) -> dict:
     """Get version history for policy"""
     versions = version_manager.get_version_history(policy_id)
     
@@ -156,7 +159,7 @@ def get_version_history(policy_id: str):
 
 
 @router.post("/policies/{policy_id}/rollback")
-def rollback_policy(policy_id: str, target_version: int):
+def rollback_policy(policy_id: str, target_version: int) -> dict:
     """Rollback policy to previous version"""
     version = version_manager.rollback(
         policy_id=policy_id,
@@ -175,7 +178,7 @@ def rollback_policy(policy_id: str, target_version: int):
 
 
 @router.get("/policies/{policy_id}/compare")
-def compare_versions(policy_id: str, version_a: int, version_b: int):
+def compare_versions(policy_id: str, version_a: int, version_b: int) -> Any:
     """Compare two versions of a policy"""
     diff = version_manager.compare_versions(policy_id, version_a, version_b)
     
@@ -186,7 +189,7 @@ def compare_versions(policy_id: str, version_a: int, version_b: int):
 
 
 @router.get("/conflicts")
-def detect_conflicts():
+def detect_conflicts() -> dict:
     """Detect conflicts in all policies"""
     policies = [p.to_dict() for p in policy_hierarchy.policies.values() if p.is_active]
     conflicts = conflict_detector.detect_conflicts(policies)
@@ -213,7 +216,7 @@ def detect_conflicts():
 
 
 @router.get("/policies/{policy_id}/test")
-def generate_tests(policy_id: str):
+def generate_tests(policy_id: str) -> dict:
     """Generate test cases for policy"""
     policy = policy_hierarchy.policies.get(policy_id)
     if not policy:
@@ -238,7 +241,7 @@ def generate_tests(policy_id: str):
 
 
 @router.post("/policies/{policy_id}/test/run")
-def run_tests(policy_id: str):
+def run_tests(policy_id: str) -> dict:
     """Run test cases for policy"""
     policy = policy_hierarchy.policies.get(policy_id)
     if not policy:
@@ -268,13 +271,13 @@ def run_tests(policy_id: str):
 
 
 @router.get("/stats")
-def get_stats():
+def get_stats() -> Any:
     """Get policy statistics"""
     return policy_hierarchy.get_stats()
 
 
 @router.delete("/policies/{policy_id}")
-def delete_policy(policy_id: str):
+def delete_policy(policy_id: str) -> dict:
     """Delete policy (deactivate)"""
     policy = policy_hierarchy.policies.get(policy_id)
     if not policy:

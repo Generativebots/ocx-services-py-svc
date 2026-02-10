@@ -1,11 +1,14 @@
 import json
 from llm_client import LLMClient
+import logging
+logger = logging.getLogger(__name__)
+
 
 class CorrectionAgent:
     """
     Self-Healing Module: Analyses Blocked Payloads -> Generates Steering Directives.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         self.llm = LLMClient()
         self.SYSTEM_PROMPT = """
         Role: You are the OCX Correction Agent, a high-precision recursive auditor.
@@ -25,7 +28,7 @@ class CorrectionAgent:
         }
         """
 
-    def generate_directive(self, original_prompt, blocked_payload, violation_report, ground_truth="Standard SOPs apply."):
+    def generate_directive(self, original_prompt, blocked_payload, violation_report, ground_truth="Standard SOPs apply.") -> Any:
         """
         Generates the corrective instruction to unblock the agent.
         """
@@ -43,7 +46,7 @@ class CorrectionAgent:
         # In production, this would parse the actual JSON from the LLM
         return self._mock_correction_logic(violation_report)
 
-    def _mock_correction_logic(self, violation_report):
+    def _mock_correction_logic(self, violation_report) -> dict:
         if "High Value" in violation_report or "limit" in violation_report.lower():
             return {
                 "remediation_directive": "Correction: The 2026 Procurement SOP requires Manager Override for spends > $5,000. Re-submit request with 'approval_id' or lower amount.",

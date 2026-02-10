@@ -157,7 +157,7 @@ class ShadowSOPRLHC:
         min_patterns_for_policy: int = 2,
         pattern_similarity_threshold: float = 0.7,
         policy_approval_threshold: float = 0.8,
-    ):
+    ) -> None:
         self.min_corrections_for_pattern = min_corrections_for_pattern
         self.min_patterns_for_policy = min_patterns_for_policy
         self.pattern_similarity_threshold = pattern_similarity_threshold
@@ -614,7 +614,7 @@ class PolicyRejectionRequest(BaseModel):
 
 
 @router.post("/corrections")
-async def record_correction(req: RecordCorrectionRequest):
+async def record_correction(req: RecordCorrectionRequest) -> dict:
     """Record a human correction to agent behavior."""
     try:
         correction = await _rlhc.record_correction(
@@ -639,7 +639,7 @@ async def record_correction(req: RecordCorrectionRequest):
 
 
 @router.get("/policies/pending")
-async def get_pending_policies():
+async def get_pending_policies() -> list:
     """Get policies pending human review."""
     policies = _rlhc.get_pending_policies()
     return [
@@ -657,7 +657,7 @@ async def get_pending_policies():
 
 
 @router.post("/policies/{policy_id}/approve")
-async def approve_policy(policy_id: str, req: PolicyApprovalRequest):
+async def approve_policy(policy_id: str, req: PolicyApprovalRequest) -> Any:
     """Approve a proposed policy."""
     result = _rlhc.approve_policy(policy_id, req.reviewer_id, req.notes)
     if not result["success"]:
@@ -666,7 +666,7 @@ async def approve_policy(policy_id: str, req: PolicyApprovalRequest):
 
 
 @router.post("/policies/{policy_id}/reject")
-async def reject_policy(policy_id: str, req: PolicyRejectionRequest):
+async def reject_policy(policy_id: str, req: PolicyRejectionRequest) -> Any:
     """Reject a proposed policy."""
     result = _rlhc.reject_policy(policy_id, req.reviewer_id, req.reason)
     if not result["success"]:
@@ -675,6 +675,6 @@ async def reject_policy(policy_id: str, req: PolicyRejectionRequest):
 
 
 @router.get("/stats")
-async def get_stats():
+async def get_stats() -> Any:
     """Get RLHC statistics."""
     return _rlhc.get_stats()

@@ -2,21 +2,24 @@
 OCX Trust Calculation Service (The Jury)
 Implements the weighted trust formula from the OCX patent:
 trust_level = (0.40 × audit) + (0.30 × reputation) + (0.20 × attestation) + (0.10 × history)
+
+C1+C2 FIX: Now imports proto stubs and registers gRPC service properly.
 """
 
 import asyncio
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from typing import Dict, Optional, AsyncIterator
 import grpc
 from grpc import aio
 
-# Import generated protobuf (would be generated from .proto files)
-# import traffic_assessment_pb2
-# import traffic_assessment_pb2_grpc
+# C1+C2 FIX: Import generated protobuf stubs (no longer commented out)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from proto import traffic_assessment_pb2
+from proto import traffic_assessment_pb2_grpc
 
-# For now, we'll define the structure
 from enum import Enum
 
 # ============================================================================
@@ -72,7 +75,7 @@ class TrustCalculationEngine:
     This is the mathematical heart of the Jury.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
     
     async def calculate_trust(self, scores: EntityScores) -> float:
@@ -202,23 +205,23 @@ class TrustCalculationEngine:
 
 
 # ============================================================================
-# IDENTITY DATABASE (Mock - would be Redis/Spanner in production)
+# IDENTITY DATABASE (Mock - would be Redis/Supabase in production)
 # ============================================================================
 
 class IdentityDatabase:
     """
     Mock identity database for storing and retrieving entity scores.
-    In production, this would be backed by Redis or Cloud Spanner.
+    In production, this would be backed by Redis or Supabase.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.identities: Dict[str, EntityScores] = {}
         self.logger = logging.getLogger(__name__)
         
         # Seed with some test data
         self._seed_test_data()
     
-    def _seed_test_data(self):
+    def _seed_test_data(self) -> None:
         """Seed database with test identities"""
         self.identities = {
             # High trust agent
@@ -268,7 +271,7 @@ class IdentityDatabase:
         
         return scores
     
-    async def update_scores(self, binary_hash: str, scores: EntityScores):
+    async def update_scores(self, binary_hash: str, scores: EntityScores) -> None:
         """Update scores for an entity"""
         self.identities[binary_hash] = scores
         self.logger.info(f"Updated scores for {binary_hash}")
@@ -278,19 +281,22 @@ class IdentityDatabase:
 # GRPC SERVICE IMPLEMENTATION
 # ============================================================================
 
-class TrustCalculationService:
+class TrustCalculationService(traffic_assessment_pb2_grpc.TrafficAssessorServicer):
     """
     gRPC service that receives traffic events from Go Interceptor
     and returns trust verdicts.
-    
+
+    C1+C2 FIX: Now inherits from TrafficAssessorServicer so gRPC
+    dispatches InspectTraffic calls to this service.
+
     This is the "Jury" that makes real-time trust decisions.
     """
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.engine = TrustCalculationEngine()
         self.identity_db = IdentityDatabase()
         self.logger = logging.getLogger(__name__)
-        
+
         # Metrics
         self.total_assessments = 0
         self.blocked_count = 0
@@ -359,23 +365,28 @@ class TrustCalculationService:
                     f"Reason: {result.reasoning}"
                 )
                 
-                # 5. Create response (would use protobuf in production)
-                response = {
-                    "request_id": request.request_id,
-                    "verdict": {
-                        "action": result.action,
-                        "trust_level": result.trust_level,
-                        "trust_tax": result.trust_tax,
-                    },
-                    "confidence_score": result.trust_level,
-                    "reasoning": result.reasoning,
-                    "metadata": {
-                        "binary_path": binary_path,
-                        "pid": pid,
-                        "breakdown": result.breakdown,
-                    }
+                # 5. Create proto response (C1+C2 FIX: proper proto objects)
+                action_map = {
+                    VerdictAction.ACTION_ALLOW.name: traffic_assessment_pb2.VerdictAction.ACTION_ALLOW,
+                    VerdictAction.ACTION_BLOCK.name: traffic_assessment_pb2.VerdictAction.ACTION_BLOCK,
+                    VerdictAction.ACTION_HOLD.name: traffic_assessment_pb2.VerdictAction.ACTION_BLOCK,  # HOLD maps to BLOCK in proto
                 }
-                
+                verdict = traffic_assessment_pb2.Verdict(
+                    action=action_map.get(result.action, traffic_assessment_pb2.VerdictAction.ACTION_BLOCK)
+                )
+                response = traffic_assessment_pb2.AssessmentResponse(
+                    request_id=request.request_id,
+                    verdict=verdict,
+                    confidence_score=result.trust_level,
+                    reasoning=result.reasoning,
+                    metadata={
+                        "trust_level": str(result.trust_level),
+                        "trust_tax": str(result.trust_tax),
+                        "binary_path": binary_path,
+                        "pid": str(pid),
+                    }
+                )
+
                 # 6. Stream response back to Go Interceptor
                 yield response
         
@@ -406,7 +417,7 @@ class TrustCalculationService:
 # SERVER SETUP
 # ============================================================================
 
-async def serve(port: int = None):
+async def serve(port: int = None) -> None:
     """
     Start the Trust Calculation Service (Jury) gRPC server.
     
@@ -428,9 +439,9 @@ async def serve(port: int = None):
     # Create gRPC server
     server = aio.server()
     
-    # Add service
+    # C1+C2 FIX: Service registration is no longer commented out
     service = TrustCalculationService()
-    # traffic_assessment_pb2_grpc.add_TrafficAssessorServicer_to_server(service, server)
+    traffic_assessment_pb2_grpc.add_TrafficAssessorServicer_to_server(service, server)
     
     # Listen on port
     server.add_insecure_port(f'[::]:{port}')

@@ -20,7 +20,7 @@ class SlackShadowSOPObserver:
     Discovered rules require human approval before becoming official policies.
     """
     
-    def __init__(self, bot_token: str = None, app_token: str = None, llm_client=None):
+    def __init__(self, bot_token: str = None, app_token: str = None, llm_client=None) -> None:
         """
         Initialize Slack observer.
         
@@ -48,7 +48,7 @@ class SlackShadowSOPObserver:
         
         logger.info("Slack Shadow-SOP Observer initialized (additive layer)")
     
-    def listen_for_tribal_knowledge(self):
+    def listen_for_tribal_knowledge(self) -> None:
         """
         Start listening to Slack channels for tribal knowledge.
         
@@ -69,7 +69,7 @@ class SlackShadowSOPObserver:
         for msg in dummy_messages:
             self.process_message(msg, channel='#engineering-leads', author='alice')
     
-    def process_message(self, text: str, channel: str, author: str):
+    def process_message(self, text: str, channel: str, author: str) -> None:
         """
         Process a Slack message for tribal knowledge.
         
@@ -146,7 +146,7 @@ class SlackShadowSOPObserver:
         
         return None
     
-    def store_shadow_sop(self, shadow_sop: Dict):
+    def store_shadow_sop(self, shadow_sop: Dict) -> None:
         """
         Store discovered shadow SOP for human review.
         
@@ -158,7 +158,7 @@ class SlackShadowSOPObserver:
         
         self.discovered_sops.append(shadow_sop)
         
-        # In production, store in Cloud Spanner shadow_sops table
+        # In production, store in Supabase shadow_sops table
         logger.info(f"Stored shadow SOP for review: {shadow_sop['rule'][:50]}...")
     
     def get_pending_reviews(self) -> List[Dict]:

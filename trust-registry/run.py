@@ -16,11 +16,13 @@ Environment variables:
 import os
 import sys
 import argparse
+import logging
+logger = logging.getLogger(__name__)
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="OCX Trust Registry Service")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")))
     parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
@@ -29,6 +31,7 @@ def main():
     
     import uvicorn
     from main import app
+
     
     print(f"🚀 Starting OCX Trust Registry on {args.host}:{args.port}")
     uvicorn.run(

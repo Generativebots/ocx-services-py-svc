@@ -8,6 +8,8 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import json
+import logging
+logger = logging.getLogger(__name__)
 
 
 class PolicyTier(str, Enum):
@@ -68,7 +70,7 @@ class Policy:
 class PolicyHierarchy:
     """Manages 3-tier policy hierarchy with precedence"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.policies: Dict[str, Policy] = {}
     
     def add_policy(self, policy: Policy) -> None:
@@ -135,6 +137,7 @@ class PolicyHierarchy:
         4. First violation in tier order blocks action
         """
         from json_logic_engine import JSONLogicEngine
+
         
         if logic_engine is None:
             logic_engine = JSONLogicEngine()

@@ -15,16 +15,19 @@ from reportlab.graphics.charts.barcharts import VerticalBarChart
 from datetime import datetime
 from typing import Dict, Any, List
 import io
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class BusinessCaseReportGenerator:
     """Generate professional PDF reports for business case analysis"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.styles = getSampleStyleSheet()
         self._setup_custom_styles()
     
-    def _setup_custom_styles(self):
+    def _setup_custom_styles(self) -> None:
         """Setup custom paragraph styles"""
         self.styles.add(ParagraphStyle(
             name='CustomTitle',

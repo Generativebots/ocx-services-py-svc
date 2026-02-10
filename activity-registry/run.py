@@ -14,11 +14,13 @@ Environment variables:
 import os
 import sys
 import argparse
+import logging
+logger = logging.getLogger(__name__)
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="OCX Activity Registry Service")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8003")))
     parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
@@ -26,15 +28,16 @@ def main():
     
     from fastapi import FastAPI
     import uvicorn
+
     
     app = FastAPI(title="OCX Activity Registry")
     
     @app.get("/health")
-    def health():
+    def health() -> dict:
         return {"status": "ok", "service": "activity-registry"}
     
     @app.get("/activities")
-    def list_activities():
+    def list_activities() -> dict:
         """List recent activities"""
         return {"activities": []}
     

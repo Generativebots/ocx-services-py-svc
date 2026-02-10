@@ -18,6 +18,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
 from functools import lru_cache
+import logging
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,7 +52,7 @@ class DatabaseConfig:
     pool_timeout: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
     
     # Backend selection
-    backend: str = os.getenv("DB_BACKEND", "supabase")  # supabase, postgresql, spanner
+    backend: str = os.getenv("DB_BACKEND", "supabase")  # supabase, postgresql
 
 
 @dataclass
@@ -123,12 +125,6 @@ class MonitoringConfig:
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
 
-@dataclass
-class SpannerConfig:
-    """Google Cloud Spanner configuration (for enterprise tier)"""
-    project_id: str = os.getenv("SPANNER_PROJECT_ID", "")
-    instance_id: str = os.getenv("SPANNER_INSTANCE_ID", "")
-    database_id: str = os.getenv("SPANNER_DATABASE_ID", "")
 
 
 @dataclass
@@ -152,7 +148,7 @@ class OCXConfig:
     trust: TrustConfig = field(default_factory=TrustConfig)
     governance: GovernanceConfig = field(default_factory=GovernanceConfig)
     monitoring: MonitoringConfig = field(default_factory=MonitoringConfig)
-    spanner: SpannerConfig = field(default_factory=SpannerConfig)
+
     services: ServiceURLsConfig = field(default_factory=ServiceURLsConfig)
 
 
@@ -183,7 +179,8 @@ def get_database_url() -> str:
     return f"postgresql://{db.postgres_user}:{db.postgres_password}@{db.postgres_host}:{db.postgres_port}/{db.postgres_db}"
 
 
-def get_supabase_client():
+def get_supabase_client() -> Any:
     """Get Supabase client"""
     from supabase import create_client
+
     return create_client(config.database.supabase_url, config.database.supabase_service_key)

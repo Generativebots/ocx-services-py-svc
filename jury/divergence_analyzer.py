@@ -19,7 +19,7 @@ class DivergenceAnalyzer:
     OCX's core enforcement decisions.
     """
     
-    def __init__(self, ghost_pool=None, ape_engine=None):
+    def __init__(self, ghost_pool=None, ape_engine=None) -> None:
         """
         Initialize divergence analyzer.
         

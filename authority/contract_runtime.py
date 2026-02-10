@@ -8,6 +8,9 @@ import uuid
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 from enum import Enum
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class ContractStatus(Enum):
@@ -32,11 +35,11 @@ class ExecutionStatus(Enum):
 class EBCLContractRuntime:
     """Runtime for executing EBCL contracts linked to A2A use cases"""
     
-    def __init__(self, db_conn):
+    def __init__(self, db_conn) -> None:
         self.db_conn = db_conn
         self._init_tables()
     
-    def _init_tables(self):
+    def _init_tables(self) -> None:
         """Initialize database tables for contract execution"""
         with self.db_conn.cursor() as cur:
             # Contracts table

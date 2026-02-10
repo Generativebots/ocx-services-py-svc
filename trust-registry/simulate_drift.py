@@ -2,18 +2,20 @@ import sqlite3
 import datetime
 import requests
 import time
+import logging
+logger = logging.getLogger(__name__)
 
 DB_PATH = "ledger.db"
 AGENT_ID = "drift-agent-01"
 
-def insert_txn(timestamp, score):
+def insert_txn(timestamp, score) -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
             "INSERT INTO ledger (timestamp, agent_id, block_hash, score, verdict, metadata) VALUES (?, ?, 'mockhash', ?, 'ALLOWED', '{}')",
             (timestamp, AGENT_ID, score)
         )
 
-def verify_drift():
+def verify_drift() -> None:
     # 1. Clear old data for this agent
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("DELETE FROM ledger WHERE agent_id = ?", (AGENT_ID,))
@@ -33,7 +35,10 @@ def verify_drift():
     print("✅ Drift Data Inserted.")
     
     # 4. Call API
-    response = requests.get(f"http://localhost:8000/ledger/health/{AGENT_ID}")
+    import os
+
+    ledger_url = os.getenv("LEDGER_SERVICE_URL", "http://localhost:8000")
+    response = requests.get(f"{ledger_url}/ledger/health/{AGENT_ID}")
     data = response.json()
     
     print("🔍 API Response:", data)

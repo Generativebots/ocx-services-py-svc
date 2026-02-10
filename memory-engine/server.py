@@ -5,13 +5,16 @@
 import json
 import datetime
 import os
+import logging
+logger = logging.getLogger(__name__)
+
 
 # Ensure vault is relative to THIS file, not the CWD
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VAULT_DIR = os.path.join(BASE_DIR, "vault")
 os.makedirs(VAULT_DIR, exist_ok=True)
 
-def record_agent_memory(agent_id: str, insight: str, outcome: str, tags: list[str] = None):
+def record_agent_memory(agent_id: str, insight: str, outcome: str, tags: list[str] = None) -> str:
     """
     Records a key outcome or learning into the agent's memory.
     Use this to store 'Lessons Learned' or 'Repeated Errors'.

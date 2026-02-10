@@ -7,6 +7,8 @@ import re
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from vllm_client import VLLMClient
+import logging
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -18,7 +20,7 @@ class DocumentChunk:
     parent: Optional['DocumentChunk'] = None
     children: List['DocumentChunk'] = None
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.children is None:
             self.children = []
 
@@ -29,7 +31,7 @@ class RecursiveSemanticParser:
     Then extracts policies from each level
     """
     
-    def __init__(self, vllm_client: VLLMClient):
+    def __init__(self, vllm_client: VLLMClient) -> None:
         self.vllm_client = vllm_client
     
     def parse_document(self, document_text: str) -> DocumentChunk:
@@ -238,6 +240,7 @@ class RecursiveSemanticParser:
 # Example usage
 if __name__ == "__main__":
     from vllm_client import get_vllm_client
+
     
     # Sample SOP
     sop_text = """

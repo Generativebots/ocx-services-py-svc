@@ -9,7 +9,7 @@ from supabase import create_client, Client
 # Load environment variables
 load_dotenv()
 
-def test_connection():
+def test_connection() -> bool:
     print("=" * 50)
     print("OCX Python Services - Supabase Connection Test")
     print("=" * 50)
