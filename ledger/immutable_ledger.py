@@ -26,6 +26,7 @@ class ImmutableGovernanceLedger:
     - SHA-256 cryptographic hashing
     - Previous hash linking (Merkle tree)
     - Tamper-proof chain verification
+    - Multi-tenant isolation (per-tenant hash chains)
     - No modification to core OCX enforcement
     
     Backend: Supabase via SupabaseLedgerClient
@@ -39,10 +40,21 @@ class ImmutableGovernanceLedger:
             supabase_client: SupabaseLedgerClient instance (optional for testing)
         """
         self.db_client = supabase_client
-        self.previous_hash = "0" * 64  # Genesis hash
-        self.chain_cache = []  # In-memory cache for testing
+        # Per-tenant genesis hashes and chain caches
+        self._previous_hashes: Dict[str, str] = {}  # tenant_id -> last hash
+        self._chain_caches: Dict[str, List[Dict]] = {}  # tenant_id -> entries
         
-        logger.info("Immutable Governance Ledger initialized (additive layer)")
+        logger.info("Immutable Governance Ledger initialized (multi-tenant, additive layer)")
+    
+    def _get_previous_hash(self, tenant_id: str) -> str:
+        """Get the last hash for a tenant's chain (genesis if new)."""
+        return self._previous_hashes.get(tenant_id, "0" * 64)
+    
+    def _get_chain_cache(self, tenant_id: str) -> List[Dict]:
+        """Get or create the in-memory chain for a tenant."""
+        if tenant_id not in self._chain_caches:
+            self._chain_caches[tenant_id] = []
+        return self._chain_caches[tenant_id]
     
     def record_event(self, event: Dict) -> str:
         """
@@ -54,6 +66,7 @@ class ImmutableGovernanceLedger:
         Args:
             event: Governance event data
                 {
+                    'tenant_id': str,       # Required — multi-tenant isolation
                     'transaction_id': str,
                     'agent_id': str,
                     'action': str,
@@ -66,10 +79,18 @@ class ImmutableGovernanceLedger:
         
         Returns:
             str: Cryptographic hash of the event
+        
+        Raises:
+            ValueError: If tenant_id is missing
         """
-        # Create ledger entry
+        tenant_id = event.get('tenant_id')
+        if not tenant_id:
+            raise ValueError("tenant_id is required for ledger entries")
+        
+        # Create ledger entry (tenant_id is part of the hash chain)
         entry = {
             'timestamp': datetime.utcnow().isoformat(),
+            'tenant_id': tenant_id,
             'transaction_id': event.get('transaction_id'),
             'agent_id': event.get('agent_id'),
             'action': event.get('action'),
@@ -78,7 +99,7 @@ class ImmutableGovernanceLedger:
             'entropy_score': event.get('entropy_score'),
             'sop_decision': event.get('sop_decision'),
             'pid_verified': event.get('pid_verified', False),
-            'previous_hash': self.previous_hash
+            'previous_hash': self._get_previous_hash(tenant_id)
         }
         
         # Calculate cryptographic hash
@@ -89,13 +110,16 @@ class ImmutableGovernanceLedger:
         if self.db_client:
             self.db_client.store_entry(entry)
         else:
-            # In-memory storage for testing
-            self.chain_cache.append(entry)
+            # In-memory storage — per-tenant chain
+            self._get_chain_cache(tenant_id).append(entry)
         
-        # Update previous hash for next entry
-        self.previous_hash = entry_hash
+        # Update previous hash for this tenant's chain
+        self._previous_hashes[tenant_id] = entry_hash
         
-        logger.info(f"Recorded governance event: {event.get('transaction_id')} -> {entry_hash[:16]}...")
+        logger.info(
+            f"Recorded governance event: tenant={tenant_id} "
+            f"tx={event.get('transaction_id')} -> {entry_hash[:16]}..."
+        )
         
         return entry_hash
     
@@ -116,23 +140,31 @@ class ImmutableGovernanceLedger:
         # SHA-256 hash
         return hashlib.sha256(data.encode()).hexdigest()
     
-    def verify_chain(self) -> bool:
+    def verify_chain(self, tenant_id: str) -> bool:
         """
-        Verify integrity of entire ledger chain.
+        Verify integrity of a tenant's ledger chain.
+        
+        Args:
+            tenant_id: Tenant whose chain to verify
         
         Returns:
             bool: True if chain is valid, False if tampered
         """
         if self.db_client:
-            entries = self.db_client.query_all()
+            entries = self.db_client.query_by_tenant(tenant_id)
         else:
-            entries = self.chain_cache
+            entries = self._get_chain_cache(tenant_id)
         
         if not entries:
             return True  # Empty chain is valid
         
         prev_hash = "0" * 64
         for entry in entries:
+            # Verify tenant isolation — entry must belong to this tenant
+            if entry.get('tenant_id') != tenant_id:
+                logger.error(f"Tenant mismatch in chain: expected {tenant_id}, got {entry.get('tenant_id')}")
+                return False
+            
             # Verify hash matches content
             expected_hash = self.calculate_hash(entry)
             if entry.get('hash', entry.get('block_hash')) != expected_hash:
@@ -146,32 +178,40 @@ class ImmutableGovernanceLedger:
             
             prev_hash = entry.get('hash', entry.get('block_hash'))
         
-        logger.info(f"Chain verification passed: {len(entries)} entries")
+        logger.info(f"Chain verification passed: tenant={tenant_id}, {len(entries)} entries")
         return True
     
-    def get_event(self, transaction_id: str) -> Optional[Dict]:
+    def get_event(self, tenant_id: str, transaction_id: str) -> Optional[Dict]:
         """
-        Retrieve a specific governance event.
+        Retrieve a specific governance event within a tenant's chain.
         
         Args:
+            tenant_id: Tenant ID for isolation
             transaction_id: Transaction ID to lookup
         
         Returns:
             Dict: Ledger entry or None
         """
         if self.db_client:
-            return self.db_client.query_by_transaction_id(transaction_id)
+            return self.db_client.query_by_transaction_id(tenant_id, transaction_id)
         else:
-            for entry in self.chain_cache:
+            for entry in self._get_chain_cache(tenant_id):
                 if entry['transaction_id'] == transaction_id:
                     return entry
         return None
     
-    def get_agent_trail(self, agent_id: str, start_date: str = None, end_date: str = None) -> List[Dict]:
+    def get_agent_trail(
+        self,
+        tenant_id: str,
+        agent_id: str,
+        start_date: str = None,
+        end_date: str = None,
+    ) -> List[Dict]:
         """
-        Get audit trail for a specific agent.
+        Get audit trail for a specific agent within a tenant.
         
         Args:
+            tenant_id: Tenant ID for isolation
             agent_id: Agent ID
             start_date: Optional start date (ISO format)
             end_date: Optional end date (ISO format)
@@ -180,9 +220,12 @@ class ImmutableGovernanceLedger:
             List[Dict]: List of governance events
         """
         if self.db_client:
-            return self.db_client.query_by_agent(agent_id, start_date, end_date)
+            return self.db_client.query_by_agent(tenant_id, agent_id, start_date, end_date)
         else:
-            results = [e for e in self.chain_cache if e['agent_id'] == agent_id]
+            results = [
+                e for e in self._get_chain_cache(tenant_id)
+                if e['agent_id'] == agent_id
+            ]
             
             # Filter by date if provided
             if start_date:
@@ -193,15 +236,18 @@ class ImmutableGovernanceLedger:
             return results
 
 
-# Example usage (does not modify core OCX)
+# Standalone test (does not modify core OCX)
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     
-    # Initialize ledger (in-memory mode for demo)
+    # Initialize ledger (in-memory mode for standalone test)
     ledger = ImmutableGovernanceLedger()
+    
+    TENANT = "acme-corp"
     
     # Record a governance event (called AFTER OCX enforcement)
     event = {
+        'tenant_id': TENANT,
         'transaction_id': 'tx-12345',
         'agent_id': 'PROCUREMENT_BOT',
         'action': 'execute_payment(amount=1500)',
@@ -215,10 +261,10 @@ if __name__ == "__main__":
     hash1 = ledger.record_event(event)
     logger.info(f"Event recorded: {hash1}")
     
-    # Verify chain
-    is_valid = ledger.verify_chain()
+    # Verify chain (tenant-scoped)
+    is_valid = ledger.verify_chain(TENANT)
     logger.info(f"Chain valid: {is_valid}")
     
-    # Retrieve event
-    retrieved = ledger.get_event('tx-12345')
+    # Retrieve event (tenant-scoped)
+    retrieved = ledger.get_event(TENANT, 'tx-12345')
     logger.info(f"Retrieved: {retrieved['hash']}")

@@ -86,6 +86,7 @@ def verify_api_key(x_api_key: str = Header(...)) -> dict:
 @app.get("/api/regulator/certificate/{transaction_id}")
 def get_compliance_certificate(
     transaction_id: str,
+    x_tenant_id: str = Header(...),
     regulator: dict = Depends(verify_api_key)
 ) -> Any:
     """
@@ -95,6 +96,7 @@ def get_compliance_certificate(
     
     Args:
         transaction_id: Transaction ID
+        x_tenant_id: Tenant ID (required for multi-tenant isolation)
         regulator: Verified regulator info (from API key)
     
     Returns:
@@ -107,13 +109,13 @@ def get_compliance_certificate(
     ledger = ImmutableGovernanceLedger()
     generator = ComplianceCertificateGenerator(ledger)
     
-    # Generate certificate
-    pdf_bytes = generator.generate_certificate_by_tx_id(transaction_id)
+    # Generate certificate (tenant-scoped)
+    pdf_bytes = generator.generate_certificate_by_tx_id(x_tenant_id, transaction_id)
     
     if not pdf_bytes:
         raise HTTPException(status_code=404, detail="Transaction not found")
     
-    logger.info(f"Regulator {regulator['name']} accessed certificate for {transaction_id}")
+    logger.info(f"Regulator {regulator['name']} accessed certificate for {transaction_id} (tenant={x_tenant_id})")
     
     return Response(
         content=pdf_bytes,
@@ -129,10 +131,11 @@ def get_audit_trail(
     agent_id: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    x_tenant_id: str = Header(...),
     regulator: dict = Depends(verify_api_key)
 ) -> Any:
     """
-    Get audit trail for a specific agent.
+    Get audit trail for a specific agent within a tenant.
     
     This is a READ-ONLY endpoint - it does not modify OCX behavior.
     
@@ -140,6 +143,7 @@ def get_audit_trail(
         agent_id: Agent ID
         start_date: Optional start date (ISO format)
         end_date: Optional end date (ISO format)
+        x_tenant_id: Tenant ID (required for multi-tenant isolation)
         regulator: Verified regulator info
     
     Returns:
@@ -148,14 +152,14 @@ def get_audit_trail(
     from immutable_ledger import ImmutableGovernanceLedger
     
     ledger = ImmutableGovernanceLedger()
-    entries = ledger.get_agent_trail(agent_id, start_date, end_date)
+    entries = ledger.get_agent_trail(x_tenant_id, agent_id, start_date, end_date)
     
     # Calculate statistics
     total_actions = len(entries)
     blocked_actions = sum(1 for e in entries if e.get('jury_verdict') == 'FAILURE')
     sequestered_actions = sum(1 for e in entries if e.get('sop_decision') == 'SEQUESTERED')
     
-    logger.info(f"Regulator {regulator['name']} accessed audit trail for {agent_id}")
+    logger.info(f"Regulator {regulator['name']} accessed audit trail for {agent_id} (tenant={x_tenant_id})")
     
     return AuditTrailResponse(
         agent_id=agent_id,
@@ -174,13 +178,17 @@ def get_audit_trail(
 
 
 @app.get("/api/regulator/verify-chain", response_model=ChainVerifyResponse)
-def verify_chain(regulator: dict = Depends(verify_api_key)) -> ChainVerifyResponse:
+def verify_chain(
+    x_tenant_id: str = Header(...),
+    regulator: dict = Depends(verify_api_key),
+) -> ChainVerifyResponse:
     """
-    Verify integrity of entire governance ledger chain.
+    Verify integrity of a tenant's governance ledger chain.
     
     This is a READ-ONLY endpoint - it does not modify OCX behavior.
     
     Args:
+        x_tenant_id: Tenant ID (required for multi-tenant isolation)
         regulator: Verified regulator info
     
     Returns:
@@ -189,9 +197,9 @@ def verify_chain(regulator: dict = Depends(verify_api_key)) -> ChainVerifyRespon
     from immutable_ledger import ImmutableGovernanceLedger
     
     ledger = ImmutableGovernanceLedger()
-    is_valid = ledger.verify_chain()
+    is_valid = ledger.verify_chain(x_tenant_id)
     
-    logger.info(f"Regulator {regulator['name']} verified chain: {is_valid}")
+    logger.info(f"Regulator {regulator['name']} verified chain for tenant {x_tenant_id}: {is_valid}")
     
     return ChainVerifyResponse(
         chain_valid=is_valid,

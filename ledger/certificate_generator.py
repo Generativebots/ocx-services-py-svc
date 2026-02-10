@@ -189,11 +189,12 @@ class ComplianceCertificateGenerator:
         
         return pdf_bytes
     
-    def generate_certificate_by_tx_id(self, transaction_id: str) -> Optional[bytes]:
+    def generate_certificate_by_tx_id(self, tenant_id: str, transaction_id: str) -> Optional[bytes]:
         """
         Generate certificate by looking up transaction in ledger.
         
         Args:
+            tenant_id: Tenant ID for multi-tenant isolation
             transaction_id: Transaction ID
         
         Returns:
@@ -203,21 +204,24 @@ class ComplianceCertificateGenerator:
             logger.error("No ledger configured")
             return None
         
-        entry = self.ledger.get_event(transaction_id)
+        entry = self.ledger.get_event(tenant_id, transaction_id)
         if not entry:
-            logger.error(f"Transaction not found: {transaction_id}")
+            logger.error(f"Transaction not found: {transaction_id} (tenant={tenant_id})")
             return None
         
         return self.generate_certificate(transaction_id, entry)
 
 
-# Example usage
+# Standalone test
 if __name__ == "__main__":
     from immutable_ledger import ImmutableGovernanceLedger
+    
+    TENANT = "acme-corp"
     
     # Create ledger and record event
     ledger = ImmutableGovernanceLedger()
     event = {
+        'tenant_id': TENANT,
         'transaction_id': 'tx-demo-001',
         'agent_id': 'PROCUREMENT_BOT',
         'action': 'execute_payment(vendor="ACME", amount=1500)',
@@ -229,9 +233,9 @@ if __name__ == "__main__":
     }
     ledger.record_event(event)
     
-    # Generate certificate
+    # Generate certificate (tenant-scoped)
     generator = ComplianceCertificateGenerator(ledger)
-    pdf_bytes = generator.generate_certificate_by_tx_id('tx-demo-001')
+    pdf_bytes = generator.generate_certificate_by_tx_id(TENANT, 'tx-demo-001')
     
     # Save to file
     with open('/tmp/compliance_certificate.pdf', 'wb') as f:

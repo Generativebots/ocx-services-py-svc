@@ -46,6 +46,7 @@ class EBCLContractRuntime:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS ebcl_contracts (
                     contract_id VARCHAR(255) PRIMARY KEY,
+                    tenant_id VARCHAR(255) NOT NULL,
                     use_case_id VARCHAR(255) REFERENCES a2a_use_cases(use_case_id),
                     company_id VARCHAR(255),
                     name VARCHAR(500),
@@ -63,6 +64,7 @@ class EBCLContractRuntime:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS contract_executions (
                     execution_id VARCHAR(255) PRIMARY KEY,
+                    tenant_id VARCHAR(255) NOT NULL,
                     contract_id VARCHAR(255) REFERENCES ebcl_contracts(contract_id),
                     agent1_id VARCHAR(255),
                     agent2_id VARCHAR(255),
@@ -83,6 +85,7 @@ class EBCLContractRuntime:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS contract_versions (
                     version_id VARCHAR(255) PRIMARY KEY,
+                    tenant_id VARCHAR(255) NOT NULL,
                     contract_id VARCHAR(255) REFERENCES ebcl_contracts(contract_id),
                     version VARCHAR(50),
                     ebcl_code TEXT,
@@ -94,12 +97,17 @@ class EBCLContractRuntime:
             
             self.db_conn.commit()
     
-    def link_use_case_to_contract(self, use_case_id: str, company_id: str) -> Dict[str, Any]:
+    def link_use_case_to_contract(self, tenant_id: str, use_case_id: str, company_id: str) -> Dict[str, Any]:
         """
-        Link an A2A use case to an EBCL contract
-        Generates EBCL code from the use case
+        Link an A2A use case to an EBCL contract.
+        Generates EBCL code from the use case.
+        
+        Args:
+            tenant_id: Tenant ID for multi-tenant isolation
+            use_case_id: The use case to link
+            company_id: Company owning this contract
         """
-        # Get use case
+        # Get use case (scoped to tenant via RLS or explicit filter)
         with self.db_conn.cursor() as cur:
             cur.execute("""
                 SELECT * FROM a2a_use_cases WHERE use_case_id = %s
@@ -118,11 +126,12 @@ class EBCLContractRuntime:
         with self.db_conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO ebcl_contracts (
-                    contract_id, use_case_id, company_id, name, description,
+                    contract_id, tenant_id, use_case_id, company_id, name, description,
                     ebcl_code, version, status
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 contract_id,
+                tenant_id,
                 use_case_id,
                 company_id,
                 use_case[2],  # title
@@ -135,6 +144,7 @@ class EBCLContractRuntime:
         
         return {
             "contract_id": contract_id,
+            "tenant_id": tenant_id,
             "use_case_id": use_case_id,
             "name": use_case[2],
             "version": "1.0.0",
@@ -213,50 +223,56 @@ contract {title.replace(' ', '_')}:
 """
         return ebcl_code
     
-    def deploy_contract(self, contract_id: str) -> Dict[str, Any]:
-        """Deploy a contract to the EBCL runtime"""
+    def deploy_contract(self, tenant_id: str, contract_id: str) -> Dict[str, Any]:
+        """Deploy a contract to the EBCL runtime (tenant-scoped)"""
         with self.db_conn.cursor() as cur:
             cur.execute("""
                 UPDATE ebcl_contracts
                 SET status = %s, deployed_at = %s, updated_at = %s
-                WHERE contract_id = %s
+                WHERE contract_id = %s AND tenant_id = %s
             """, (
                 ContractStatus.DEPLOYED.value,
                 datetime.now(),
                 datetime.now(),
-                contract_id
+                contract_id,
+                tenant_id
             ))
+            if cur.rowcount == 0:
+                raise ValueError(f"Contract {contract_id} not found for tenant {tenant_id}")
             self.db_conn.commit()
         
         return {
             "contract_id": contract_id,
+            "tenant_id": tenant_id,
             "status": ContractStatus.DEPLOYED.value,
             "deployed_at": datetime.now().isoformat()
         }
     
     def execute_contract(
         self,
+        tenant_id: str,
         contract_id: str,
         agent1_id: str,
         agent2_id: str,
         input_data: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Execute a contract with real agents"""
+        """Execute a contract with real agents (tenant-scoped)"""
         execution_id = f"exec_{uuid.uuid4().hex[:12]}"
         started_at = datetime.now()
         
         try:
-            # Get contract
+            # Get contract (scoped to tenant)
             with self.db_conn.cursor() as cur:
                 cur.execute("""
-                    SELECT * FROM ebcl_contracts WHERE contract_id = %s
-                """, (contract_id,))
+                    SELECT * FROM ebcl_contracts
+                    WHERE contract_id = %s AND tenant_id = %s
+                """, (contract_id, tenant_id))
                 contract = cur.fetchone()
                 
                 if not contract:
-                    raise ValueError(f"Contract not found: {contract_id}")
+                    raise ValueError(f"Contract {contract_id} not found for tenant {tenant_id}")
                 
-                if contract[7] != ContractStatus.DEPLOYED.value:  # status
+                if contract[8] != ContractStatus.DEPLOYED.value:  # status (shifted by tenant_id col)
                     raise ValueError(f"Contract not deployed: {contract_id}")
             
             # Simulate contract execution
@@ -267,7 +283,6 @@ contract {title.replace(' ', '_')}:
             # 4. Apply trust tax
             # 5. Record results
             
-            # For now, simulate successful execution
             import time
             import random
             
@@ -288,16 +303,17 @@ contract {title.replace(' ', '_')}:
             
             completed_at = datetime.now()
             
-            # Record execution
+            # Record execution (with tenant_id)
             with self.db_conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO contract_executions (
-                        execution_id, contract_id, agent1_id, agent2_id,
+                        execution_id, tenant_id, contract_id, agent1_id, agent2_id,
                         status, input_data, output_data, trust_level, trust_tax,
                         execution_time_ms, started_at, completed_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     execution_id,
+                    tenant_id,
                     contract_id,
                     agent1_id,
                     agent2_id,
@@ -314,6 +330,7 @@ contract {title.replace(' ', '_')}:
             
             return {
                 "execution_id": execution_id,
+                "tenant_id": tenant_id,
                 "contract_id": contract_id,
                 "status": ExecutionStatus.SUCCESS.value,
                 "trust_level": trust_level,
@@ -325,15 +342,16 @@ contract {title.replace(' ', '_')}:
             }
             
         except Exception as e:
-            # Record failed execution
+            # Record failed execution (with tenant_id)
             with self.db_conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO contract_executions (
-                        execution_id, contract_id, agent1_id, agent2_id,
+                        execution_id, tenant_id, contract_id, agent1_id, agent2_id,
                         status, input_data, error_message, started_at, completed_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     execution_id,
+                    tenant_id,
                     contract_id,
                     agent1_id,
                     agent2_id,
@@ -349,21 +367,23 @@ contract {title.replace(' ', '_')}:
     
     def create_contract_version(
         self,
+        tenant_id: str,
         contract_id: str,
         ebcl_code: str,
         changes: str,
         created_by: str
     ) -> Dict[str, Any]:
-        """Create a new version of a contract"""
-        # Get current version
+        """Create a new version of a contract (tenant-scoped)"""
+        # Get current version (scoped to tenant)
         with self.db_conn.cursor() as cur:
             cur.execute("""
-                SELECT version FROM ebcl_contracts WHERE contract_id = %s
-            """, (contract_id,))
+                SELECT version FROM ebcl_contracts
+                WHERE contract_id = %s AND tenant_id = %s
+            """, (contract_id, tenant_id))
             result = cur.fetchone()
             
             if not result:
-                raise ValueError(f"Contract not found: {contract_id}")
+                raise ValueError(f"Contract {contract_id} not found for tenant {tenant_id}")
             
             current_version = result[0]
         
@@ -373,14 +393,15 @@ contract {title.replace(' ', '_')}:
         
         version_id = f"ver_{uuid.uuid4().hex[:12]}"
         
-        # Save version
+        # Save version (with tenant_id)
         with self.db_conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO contract_versions (
-                    version_id, contract_id, version, ebcl_code, changes, created_by
-                ) VALUES (%s, %s, %s, %s, %s, %s)
+                    version_id, tenant_id, contract_id, version, ebcl_code, changes, created_by
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
                 version_id,
+                tenant_id,
                 contract_id,
                 new_version,
                 ebcl_code,
@@ -388,22 +409,24 @@ contract {title.replace(' ', '_')}:
                 created_by
             ))
             
-            # Update contract
+            # Update contract (scoped to tenant)
             cur.execute("""
                 UPDATE ebcl_contracts
                 SET ebcl_code = %s, version = %s, updated_at = %s
-                WHERE contract_id = %s
+                WHERE contract_id = %s AND tenant_id = %s
             """, (
                 ebcl_code,
                 new_version,
                 datetime.now(),
-                contract_id
+                contract_id,
+                tenant_id
             ))
             
             self.db_conn.commit()
         
         return {
             "version_id": version_id,
+            "tenant_id": tenant_id,
             "contract_id": contract_id,
             "version": new_version,
             "changes": changes
@@ -411,31 +434,33 @@ contract {title.replace(' ', '_')}:
     
     def get_contract_executions(
         self,
+        tenant_id: str,
         contract_id: str,
         limit: int = 100
     ) -> List[Dict[str, Any]]:
-        """Get execution history for a contract"""
+        """Get execution history for a contract (tenant-scoped)"""
         with self.db_conn.cursor() as cur:
             cur.execute("""
                 SELECT * FROM contract_executions
-                WHERE contract_id = %s
+                WHERE contract_id = %s AND tenant_id = %s
                 ORDER BY created_at DESC
                 LIMIT %s
-            """, (contract_id, limit))
+            """, (contract_id, tenant_id, limit))
             
             executions = []
             for row in cur.fetchall():
                 executions.append({
                     "execution_id": row[0],
-                    "contract_id": row[1],
-                    "agent1_id": row[2],
-                    "agent2_id": row[3],
-                    "status": row[4],
-                    "trust_level": row[7],
-                    "trust_tax": row[8],
-                    "execution_time_ms": row[9],
-                    "started_at": row[11].isoformat() if row[11] else None,
-                    "completed_at": row[12].isoformat() if row[12] else None
+                    "tenant_id": row[1],
+                    "contract_id": row[2],
+                    "agent1_id": row[3],
+                    "agent2_id": row[4],
+                    "status": row[5],
+                    "trust_level": row[8],
+                    "trust_tax": row[9],
+                    "execution_time_ms": row[10],
+                    "started_at": row[12].isoformat() if row[12] else None,
+                    "completed_at": row[13].isoformat() if row[13] else None
                 })
             
             return executions

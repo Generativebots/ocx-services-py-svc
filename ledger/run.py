@@ -57,8 +57,8 @@ def main() -> None:
         return HealthResponse(status="ok", service="ledger")
     
     @app.get("/ledger/verify", response_model=ChainVerifyResponse)
-    def verify_chain() -> ChainVerifyResponse:
-        is_valid = ledger.verify_chain()
+    def verify_chain(tenant_id: str) -> ChainVerifyResponse:
+        is_valid = ledger.verify_chain(tenant_id)
         return ChainVerifyResponse(chain_valid=is_valid)
     
     @app.get("/ledger/stats", response_model=LedgerStatsResponse)
