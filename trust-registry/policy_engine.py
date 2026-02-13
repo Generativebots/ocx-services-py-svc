@@ -64,11 +64,12 @@ def register_agent(req: RegisterAgentRequest) -> dict:
 
 @router.get("/agents")
 def list_agents(tenant_id: str) -> Any:
-    # TODO: Filter by tenant in registry.list_agents (needs update there too if not present)
-    # For now, assuming registry handles it or we need to add it.
-    # Registry signature doesn't show list_agents taking tenant_id in previous view, let's assume it returns all and we filter, or better, update registry.
-    # Actually registry.py didn't show list_agents implementation in the snippet.
-    return registry.list_agents(tenant_id)
+    """List agents filtered by tenant_id for multi-tenant isolation."""
+    all_agents = registry.list_agents(tenant_id)
+    # Double-check tenant filtering in case registry returns unfiltered results
+    if isinstance(all_agents, list):
+        return [a for a in all_agents if a.get("tenant_id") == tenant_id or not a.get("tenant_id")]
+    return all_agents
 
 @router.post("/rules/draft")
 def draft_rule(req: DraftRuleRequest) -> dict:
@@ -119,8 +120,12 @@ def deploy_rule(req: DeployRuleRequest) -> dict:
     return {"rule_id": rule_id, "status": "Active", "tenant_id": req.tenant_id}
 
 @router.get("/rules")
-def get_rules() -> Any:
-    return registry.get_active_rules()
+def get_rules(tenant_id: str = "") -> Any:
+    """List active rules, filtered by tenant if specified."""
+    rules = registry.get_active_rules()
+    if tenant_id and isinstance(rules, list):
+        return [r for r in rules if r.get("tenant_id") == tenant_id or not r.get("tenant_id")]
+    return rules
 
 @router.post("/agents/{agent_id}/eject")
 def eject_agent_endpoint(agent_id: str, req: dict) -> dict:

@@ -203,21 +203,30 @@ class GhostStateEngine:
 class GhostStateEscrowGate:
     """
     Extended Escrow Gate with Ghost-State evaluation
-    Integrates with existing Economic Barrier
+    Integrates with existing Economic Barrier and Go gVisor sandbox
     """
     
-    def __init__(self, ghost_engine: GhostStateEngine) -> None:
+    def __init__(
+        self,
+        ghost_engine: GhostStateEngine,
+        sandbox_client: "Optional[SandboxClient]" = None,
+    ) -> None:
         self.ghost_engine = ghost_engine
+        self.sandbox_client = sandbox_client  # Bridge to Go backend gVisor
     
     def evaluate_with_projection(
         self,
         current_state: StateSnapshot,
         tool_name: str,
         tool_args: Dict[str, Any],
-        policies: list
+        policies: list,
+        agent_id: str = "",
+        tenant_id: str = "",
     ) -> tuple[bool, Optional[str]]:
         """
-        Evaluate all policies with Ghost-State projection
+        Evaluate all policies with Ghost-State projection.
+        If policies pass and sandbox_client is configured, triggers real
+        gVisor speculative execution in the Go backend.
         
         Returns:
             (is_allowed, action)
@@ -232,10 +241,35 @@ class GhostStateEscrowGate:
             
             if not is_allowed:
                 action = policy["action"].get("on_fail", "BLOCK")
-                print(f"🚨 Ghost-State violation: {reason}")
+                logger.warning("Ghost-State violation: %s", reason)
                 return False, action
         
+        # All policies passed — trigger real sandbox execution if available
+        if self.sandbox_client is not None and agent_id:
+            sandbox_result = self.sandbox_client.trigger_speculative_execution(
+                tool_name=tool_name,
+                agent_id=agent_id,
+                tenant_id=tenant_id,
+                arguments=tool_args,
+            )
+            verdict = sandbox_result.get("verdict", "ALLOW")
+            if verdict == "BLOCK":
+                reason = sandbox_result.get("reason", "Sandbox execution blocked")
+                logger.warning("Sandbox execution blocked: %s", reason)
+                return False, "BLOCK"
+            logger.info(
+                "Sandbox execution confirmed: verdict=%s hash=%s",
+                verdict,
+                sandbox_result.get("speculative_hash", ""),
+            )
+        
         return True, "ALLOW"
+
+    def get_sandbox_health(self) -> Dict[str, Any]:
+        """Query the Go backend for gVisor sandbox runtime status."""
+        if self.sandbox_client is None:
+            return {"available": False, "reason": "No sandbox client configured"}
+        return self.sandbox_client.get_sandbox_status()
 
 
 # Example usage

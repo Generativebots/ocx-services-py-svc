@@ -98,14 +98,49 @@ class JSONLogicEngine:
     
     def simplify(self, logic: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Simplify JSON-Logic expression (remove redundant operations)
-        
-        Example:
-            {"and": [{"==": [1, 1]}]} → {"==": [1, 1]}
+        Simplify JSON-Logic expression (remove redundant operations).
+
+        Rules applied:
+          1. {"and": [X]}  → X   (single-element AND)
+          2. {"or":  [X]}  → X   (single-element OR)
+          3. {"not": {"not": X}} → X  (double negation)
+          4. {"==": [V, V]} → True constant  (identity comparison)
         """
-        # TODO: Implement logic simplification
-        # For now, return as-is
-        return logic
+        if not isinstance(logic, dict):
+            return logic
+
+        # Recursively simplify children first
+        simplified: Dict[str, Any] = {}
+        for op, args in logic.items():
+            if isinstance(args, list):
+                simplified[op] = [
+                    self.simplify(a) if isinstance(a, dict) else a for a in args
+                ]
+            elif isinstance(args, dict):
+                simplified[op] = self.simplify(args)
+            else:
+                simplified[op] = args
+
+        # Rule 1 & 2: unwrap single-element AND/OR
+        for wrapper in ("and", "or"):
+            if wrapper in simplified:
+                items = simplified[wrapper]
+                if isinstance(items, list) and len(items) == 1:
+                    return items[0]
+
+        # Rule 3: eliminate double negation
+        if "not" in simplified:
+            inner = simplified["not"]
+            if isinstance(inner, dict) and "not" in inner:
+                return inner["not"]
+
+        # Rule 4: identity comparison
+        if "==" in simplified:
+            args = simplified["=="]
+            if isinstance(args, list) and len(args) == 2 and args[0] == args[1]:
+                return True  # type: ignore[return-value]
+
+        return simplified
 
 
 # Example usage and test cases

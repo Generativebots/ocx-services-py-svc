@@ -12,6 +12,7 @@ import sys
 import os
 import logging
 import uuid
+from typing import Any
 
 # C1+C2 FIX: Import generated protobuf stubs (no longer mocked)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
