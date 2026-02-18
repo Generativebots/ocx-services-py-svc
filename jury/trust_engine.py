@@ -34,6 +34,13 @@ WEIGHT_HISTORY = 0.10      # 10% - Relationship age and depth
 TRUST_THRESHOLD = 0.65     # Minimum trust for ACTION_ALLOW
 TRUST_TAX_RATE = 0.10      # 10% base tax rate
 
+# Governance config loader — tenant-specific overrides
+try:
+    from config.governance_config import get_tenant_governance_config
+    _HAS_GOV_CONFIG = True
+except ImportError:
+    _HAS_GOV_CONFIG = False
+
 
 # ============================================================================
 # DATA MODELS
@@ -75,9 +82,26 @@ class TrustCalculationEngine:
     This is the mathematical heart of the Jury.
     """
     
-    def __init__(self) -> None:
+    def __init__(self, tenant_id: str = None) -> None:
         self.logger = logging.getLogger(__name__)
-    
+        self.tenant_id = tenant_id
+        
+        # Load weights from governance config if available
+        if tenant_id and _HAS_GOV_CONFIG:
+            cfg = get_tenant_governance_config(tenant_id)
+            self.weight_audit = cfg.get("jury_audit_weight", WEIGHT_AUDIT)
+            self.weight_reputation = cfg.get("jury_reputation_weight", WEIGHT_REPUTATION)
+            self.weight_attestation = cfg.get("jury_attestation_weight", WEIGHT_ATTESTATION)
+            self.weight_history = cfg.get("jury_history_weight", WEIGHT_HISTORY)
+            self.trust_threshold = cfg.get("jury_trust_threshold", TRUST_THRESHOLD)
+            self.trust_tax_rate = cfg.get("trust_tax_base_rate", TRUST_TAX_RATE)
+        else:
+            self.weight_audit = WEIGHT_AUDIT
+            self.weight_reputation = WEIGHT_REPUTATION
+            self.weight_attestation = WEIGHT_ATTESTATION
+            self.weight_history = WEIGHT_HISTORY
+            self.trust_threshold = TRUST_THRESHOLD
+            self.trust_tax_rate = TRUST_TAX_RATE
     async def calculate_trust(self, scores: EntityScores) -> float:
         """
         Implements the Weighted Trust Calculation from the OCX Patent.
@@ -95,10 +119,10 @@ class TrustCalculationEngine:
             float: Trust level between 0.0 and 1.0
         """
         trust_level = (
-            (scores.audit * WEIGHT_AUDIT) +
-            (scores.reputation * WEIGHT_REPUTATION) +
-            (scores.attestation * WEIGHT_ATTESTATION) +
-            (scores.history * WEIGHT_HISTORY)
+            (scores.audit * self.weight_audit) +
+            (scores.reputation * self.weight_reputation) +
+            (scores.attestation * self.weight_attestation) +
+            (scores.history * self.weight_history)
         )
         
         # Ensure bounds
@@ -133,7 +157,7 @@ class TrustCalculationEngine:
             float: Tax amount to be collected
         """
         trust_deficit = 1.0 - trust_level
-        tax_amount = trust_deficit * TRUST_TAX_RATE * transaction_value
+        tax_amount = trust_deficit * self.trust_tax_rate * transaction_value
         
         return tax_amount
     
@@ -149,15 +173,15 @@ class TrustCalculationEngine:
             "reputation_score": scores.reputation,
             "attestation_score": scores.attestation,
             "history_score": scores.history,
-            "audit_weighted": scores.audit * WEIGHT_AUDIT,
-            "reputation_weighted": scores.reputation * WEIGHT_REPUTATION,
-            "attestation_weighted": scores.attestation * WEIGHT_ATTESTATION,
-            "history_weighted": scores.history * WEIGHT_HISTORY,
+            "audit_weighted": scores.audit * self.weight_audit,
+            "reputation_weighted": scores.reputation * self.weight_reputation,
+            "attestation_weighted": scores.attestation * self.weight_attestation,
+            "history_weighted": scores.history * self.weight_history,
             "trust_level": trust_level,
-            "weight_audit": WEIGHT_AUDIT,
-            "weight_reputation": WEIGHT_REPUTATION,
-            "weight_attestation": WEIGHT_ATTESTATION,
-            "weight_history": WEIGHT_HISTORY,
+            "weight_audit": self.weight_audit,
+            "weight_reputation": self.weight_reputation,
+            "weight_attestation": self.weight_attestation,
+            "weight_history": self.weight_history,
         }
     
     async def assess_and_decide(
@@ -182,12 +206,12 @@ class TrustCalculationEngine:
         trust_tax = self.calculate_trust_tax(trust_level, transaction_value)
         
         # 3. Determine action
-        if trust_level >= TRUST_THRESHOLD:
+        if trust_level >= self.trust_threshold:
             action = VerdictAction.ACTION_ALLOW.name
-            reasoning = f"Trust level {trust_level:.3f} meets threshold {TRUST_THRESHOLD}"
+            reasoning = f"Trust level {trust_level:.3f} meets threshold {self.trust_threshold}"
         elif trust_level >= 0.3:
             action = VerdictAction.ACTION_HOLD.name
-            reasoning = f"Trust level {trust_level:.3f} requires verification (threshold {TRUST_THRESHOLD})"
+            reasoning = f"Trust level {trust_level:.3f} requires verification (threshold {self.trust_threshold})"
         else:
             action = VerdictAction.ACTION_BLOCK.name
             reasoning = f"Trust level {trust_level:.3f} below minimum threshold"

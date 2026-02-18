@@ -37,67 +37,10 @@ class EBCLContractRuntime:
     
     def __init__(self, db_conn) -> None:
         self.db_conn = db_conn
-        self._init_tables()
     
-    def _init_tables(self) -> None:
-        """Initialize database tables for contract execution"""
-        with self.db_conn.cursor() as cur:
-            # Contracts table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS ebcl_contracts (
-                    contract_id VARCHAR(255) PRIMARY KEY,
-                    tenant_id VARCHAR(255) NOT NULL,
-                    use_case_id VARCHAR(255) REFERENCES a2a_use_cases(use_case_id),
-                    company_id VARCHAR(255),
-                    name VARCHAR(500),
-                    description TEXT,
-                    ebcl_code TEXT,
-                    version VARCHAR(50),
-                    status VARCHAR(50),
-                    deployed_at TIMESTAMP,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Executions table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS contract_executions (
-                    execution_id VARCHAR(255) PRIMARY KEY,
-                    tenant_id VARCHAR(255) NOT NULL,
-                    contract_id VARCHAR(255) REFERENCES ebcl_contracts(contract_id),
-                    agent1_id VARCHAR(255),
-                    agent2_id VARCHAR(255),
-                    status VARCHAR(50),
-                    input_data JSONB,
-                    output_data JSONB,
-                    trust_level FLOAT,
-                    trust_tax FLOAT,
-                    execution_time_ms INTEGER,
-                    error_message TEXT,
-                    started_at TIMESTAMP,
-                    completed_at TIMESTAMP,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Contract versions table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS contract_versions (
-                    version_id VARCHAR(255) PRIMARY KEY,
-                    tenant_id VARCHAR(255) NOT NULL,
-                    contract_id VARCHAR(255) REFERENCES ebcl_contracts(contract_id),
-                    version VARCHAR(50),
-                    ebcl_code TEXT,
-                    changes TEXT,
-                    created_by VARCHAR(255),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            self.db_conn.commit()
+
     
-    def link_use_case_to_contract(self, tenant_id: str, use_case_id: str, company_id: str) -> Dict[str, Any]:
+    def link_use_case_to_contract(self, tenant_id: str, use_case_id: str) -> Dict[str, Any]:
         """
         Link an A2A use case to an EBCL contract.
         Generates EBCL code from the use case.
@@ -105,7 +48,6 @@ class EBCLContractRuntime:
         Args:
             tenant_id: Tenant ID for multi-tenant isolation
             use_case_id: The use case to link
-            company_id: Company owning this contract
         """
         # Get use case (scoped to tenant via RLS or explicit filter)
         with self.db_conn.cursor() as cur:
@@ -126,14 +68,13 @@ class EBCLContractRuntime:
         with self.db_conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO ebcl_contracts (
-                    contract_id, tenant_id, use_case_id, company_id, name, description,
+                    contract_id, tenant_id, use_case_id, name, description,
                     ebcl_code, version, status
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 contract_id,
                 tenant_id,
                 use_case_id,
-                company_id,
                 use_case[2],  # title
                 use_case[3],  # description
                 ebcl_code,
@@ -306,7 +247,7 @@ contract {title.replace(' ', '_')}:
             # Record execution (with tenant_id)
             with self.db_conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO contract_executions (
+                    INSERT INTO ebcl_contract_executions (
                         execution_id, tenant_id, contract_id, agent1_id, agent2_id,
                         status, input_data, output_data, trust_level, trust_tax,
                         execution_time_ms, started_at, completed_at
@@ -345,7 +286,7 @@ contract {title.replace(' ', '_')}:
             # Record failed execution (with tenant_id)
             with self.db_conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO contract_executions (
+                    INSERT INTO ebcl_contract_executions (
                         execution_id, tenant_id, contract_id, agent1_id, agent2_id,
                         status, input_data, error_message, started_at, completed_at
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -396,7 +337,7 @@ contract {title.replace(' ', '_')}:
         # Save version (with tenant_id)
         with self.db_conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO contract_versions (
+                INSERT INTO ebcl_contract_versions (
                     version_id, tenant_id, contract_id, version, ebcl_code, changes, created_by
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
@@ -432,7 +373,7 @@ contract {title.replace(' ', '_')}:
             "changes": changes
         }
     
-    def get_contract_executions(
+    def get_ebcl_contract_executions(
         self,
         tenant_id: str,
         contract_id: str,
@@ -441,7 +382,7 @@ contract {title.replace(' ', '_')}:
         """Get execution history for a contract (tenant-scoped)"""
         with self.db_conn.cursor() as cur:
             cur.execute("""
-                SELECT * FROM contract_executions
+                SELECT * FROM ebcl_contract_executions
                 WHERE contract_id = %s AND tenant_id = %s
                 ORDER BY created_at DESC
                 LIMIT %s

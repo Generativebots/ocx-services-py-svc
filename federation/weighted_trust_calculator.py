@@ -29,15 +29,33 @@ class WeightedTrustCalculator:
     Each component is scored 0.0 - 1.0
     """
     
-    # Weight constants
+    # Weight constants (defaults)
     AUDIT_WEIGHT = 0.40
     REPUTATION_WEIGHT = 0.30
     ATTESTATION_WEIGHT = 0.20
     HISTORY_WEIGHT = 0.10
     
-    def __init__(self) -> None:
+    def __init__(self, tenant_id: str = None) -> None:
         self.calculations_performed = 0
         self.avg_trust_level = 0.0
+        
+        # Override from governance config if available
+        if tenant_id:
+            try:
+                from config.governance_config import get_tenant_governance_config
+                cfg = get_tenant_governance_config(tenant_id)
+                self.AUDIT_WEIGHT = cfg.get("jury_audit_weight", 0.40)
+                self.REPUTATION_WEIGHT = cfg.get("jury_reputation_weight", 0.30)
+                self.ATTESTATION_WEIGHT = cfg.get("jury_attestation_weight", 0.20)
+                self.HISTORY_WEIGHT = cfg.get("jury_history_weight", 0.10)
+                self._trust_tax_base_rate = cfg.get("trust_tax_base_rate", 0.10)
+                logger.info(f"WeightedTrustCalculator configured from tenant governance: "
+                           f"audit={self.AUDIT_WEIGHT}, rep={self.REPUTATION_WEIGHT}, "
+                           f"att={self.ATTESTATION_WEIGHT}, hist={self.HISTORY_WEIGHT}")
+            except ImportError:
+                self._trust_tax_base_rate = 0.10
+        else:
+            self._trust_tax_base_rate = 0.10
     
     def calculate_trust(self, 
                        audit_score: float,
@@ -235,7 +253,7 @@ class WeightedTrustCalculator:
         score = age_score + interaction_bonus
         return min(score, 1.0)  # Cap at 1.0
     
-    def calculate_trust_tax(self, trust_level: float, base_rate: float = 0.10) -> float:
+    def calculate_trust_tax(self, trust_level: float, base_rate: float = None) -> float:
         """
         Calculate trust tax based on trust level
         
@@ -244,11 +262,13 @@ class WeightedTrustCalculator:
         
         Args:
             trust_level: Trust level (0.0 - 1.0)
-            base_rate: Base tax rate (default 10%)
+            base_rate: Base tax rate (default from governance config or 10%)
         
         Returns:
             Trust tax percentage (0.0 - base_rate)
         """
+        if base_rate is None:
+            base_rate = self._trust_tax_base_rate
         self._validate_score(trust_level, "trust_level")
         
         trust_tax = (1.0 - trust_level) * base_rate

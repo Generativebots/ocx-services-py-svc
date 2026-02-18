@@ -213,12 +213,12 @@ class AuthorityContractGenerator:
         
         cursor.execute("""
             INSERT INTO authority_contracts 
-            (contract_id, use_case_id, company_id, contract_yaml,
-             contract_version, agents, decision_point, authority_rules,
+            (contract_id, use_case_id, tenant_id, contract_yaml,
+             contract_version, agents_config, decision_point, authority_rules,
              enforcement, audit_config)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
-            contract_id, use_case_id, 'company-demo',
+            contract_id, use_case_id, '00000000-0000-0000-0000-000000000001',
             contract_yaml, contract['version'],
             contract['parties'], contract['decision_point'],
             contract['authority_rules'], contract['enforcement'],

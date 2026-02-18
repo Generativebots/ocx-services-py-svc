@@ -7,7 +7,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV PORT=8000
+# Cloud Run injects PORT=8080
+ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 
-CMD exec uvicorn api:app --host 0.0.0.0 --port ${PORT}
+EXPOSE 8080
+
+CMD ["python", "run.py"]

@@ -217,12 +217,12 @@ State transfer via Redis snapshot."""
         
         cursor.execute("""
             INSERT INTO a2a_use_cases 
-            (use_case_id, company_id, gap_id, pattern_type, title, description,
+            (use_case_id, tenant_id, gap_id, pattern_type, title, description,
              agents_involved, current_problem, ocx_proposal, authority_contract)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             use_case_id,
-            'company-demo',  # TODO: Get from context
+            '00000000-0000-0000-0000-000000000001',  # TODO: Get from context
             use_case['gap_id'],
             use_case['pattern_type'],
             use_case['title'],
@@ -238,7 +238,7 @@ State transfer via Redis snapshot."""
         
         return use_case_id
     
-    def get_use_cases(self, company_id: str, pattern_type: str = None) -> List[Dict[str, Any]]:
+    def get_use_cases(self, tenant_id: str, pattern_type: str = None) -> List[Dict[str, Any]]:
         """Get all A2A use cases for a company"""
         cursor = self.conn.cursor()
         
@@ -248,18 +248,18 @@ State transfer via Redis snapshot."""
                        agents_involved, current_problem, ocx_proposal,
                        authority_contract, status
                 FROM a2a_use_cases
-                WHERE company_id = %s AND pattern_type = %s
+                WHERE tenant_id = %s AND pattern_type = %s
                 ORDER BY created_at DESC
-            """, (company_id, pattern_type))
+            """, (tenant_id, pattern_type))
         else:
             cursor.execute("""
                 SELECT use_case_id, gap_id, pattern_type, title, description,
                        agents_involved, current_problem, ocx_proposal,
                        authority_contract, status
                 FROM a2a_use_cases
-                WHERE company_id = %s
+                WHERE tenant_id = %s
                 ORDER BY created_at DESC
-            """, (company_id,))
+            """, (tenant_id,))
         
         use_cases = []
         for row in cursor.fetchall():

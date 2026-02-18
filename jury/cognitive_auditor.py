@@ -142,6 +142,7 @@ class CognitiveAuditor:
         trust_threshold: float = 0.65,
         unanimous_required: bool = False,
         quorum_threshold: float = 0.66,
+        tenant_id: str = None,
     ) -> None:
         import os
         self.ape_service_url = ape_service_url or os.getenv("APE_SERVICE_URL", "http://localhost:8000/ape")
@@ -149,6 +150,18 @@ class CognitiveAuditor:
         self.trust_threshold = trust_threshold
         self.unanimous_required = unanimous_required
         self.quorum_threshold = quorum_threshold
+        
+        # Override from governance config if tenant_id provided
+        if tenant_id:
+            try:
+                from config.governance_config import get_tenant_governance_config
+                cfg = get_tenant_governance_config(tenant_id)
+                self.trust_threshold = cfg.get("jury_trust_threshold", trust_threshold)
+                self.quorum_threshold = cfg.get("quorum_threshold", quorum_threshold)
+                logger.info(f"CognitiveAuditor configured from tenant governance: "
+                           f"trust_threshold={self.trust_threshold}, quorum={self.quorum_threshold}")
+            except ImportError:
+                pass
         
         # In-memory baseline cache (production: use Supabase/Redis)
         self.baselines: Dict[str, BehavioralBaseline] = {}

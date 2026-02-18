@@ -19,8 +19,13 @@ import argparse
 import logging
 logger = logging.getLogger(__name__)
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Ensure local modules (jury.py, ledger.py, orchestrator.py) resolve
+# before sibling packages (jury/, ledger/) in the parent directory
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+if _this_dir not in sys.path:
+    sys.path.insert(0, _this_dir)
+# Add parent directory for shared imports
+sys.path.insert(1, os.path.dirname(_this_dir))
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="OCX Trust Registry Service")

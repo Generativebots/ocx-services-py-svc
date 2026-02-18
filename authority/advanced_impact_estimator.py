@@ -65,37 +65,9 @@ class AdvancedImpactEstimator:
     
     def __init__(self, db_conn) -> None:
         self.db_conn = db_conn
-        self._init_tables()
         self._load_industry_templates()
     
-    def _init_tables(self) -> None:
-        """Initialize tables for custom assumptions"""
-        with self.db_conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS impact_assumptions (
-                    assumption_id VARCHAR(255) PRIMARY KEY,
-                    company_id VARCHAR(255),
-                    use_case_id VARCHAR(255),
-                    assumptions JSONB,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS impact_simulations (
-                    simulation_id VARCHAR(255) PRIMARY KEY,
-                    company_id VARCHAR(255),
-                    use_case_id VARCHAR(255),
-                    assumptions JSONB,
-                    results JSONB,
-                    num_iterations INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            self.db_conn.commit()
-    
+
     def _load_industry_templates(self) -> None:
         """Load industry-specific templates"""
         self.industry_templates = {
@@ -388,7 +360,7 @@ class AdvancedImpactEstimator:
     
     def save_assumptions(
         self,
-        company_id: str,
+        tenant_id: str,
         use_case_id: str,
         assumptions: ImpactAssumptions
     ) -> str:
@@ -400,11 +372,11 @@ class AdvancedImpactEstimator:
         with self.db_conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO impact_assumptions (
-                    assumption_id, company_id, use_case_id, assumptions
+                    assumption_id, tenant_id, use_case_id, assumptions
                 ) VALUES (%s, %s, %s, %s)
             """, (
                 assumption_id,
-                company_id,
+                tenant_id,
                 use_case_id,
                 json.dumps(asdict(assumptions))
             ))
@@ -414,7 +386,7 @@ class AdvancedImpactEstimator:
     
     def save_simulation(
         self,
-        company_id: str,
+        tenant_id: str,
         use_case_id: str,
         assumptions: ImpactAssumptions,
         results: Dict[str, Any],
@@ -429,11 +401,11 @@ class AdvancedImpactEstimator:
         with self.db_conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO impact_simulations (
-                    simulation_id, company_id, use_case_id, assumptions, results, num_iterations
+                    simulation_id, tenant_id, use_case_id, assumptions, results, num_iterations
                 ) VALUES (%s, %s, %s, %s, %s, %s)
             """, (
                 simulation_id,
-                company_id,
+                tenant_id,
                 use_case_id,
                 json.dumps(asdict(assumptions)),
                 json.dumps(results),

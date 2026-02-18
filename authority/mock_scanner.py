@@ -105,12 +105,12 @@ class MockScanner:
             ]
         }
     
-    def scan_document(self, company_id: str, doc_type: str, file_path: str, file_content: str) -> Dict[str, Any]:
+    def scan_document(self, tenant_id: str, doc_type: str, file_path: str, file_content: str) -> Dict[str, Any]:
         """
         Mock scan that returns pre-defined gaps
         
         Args:
-            company_id: Company identifier
+            tenant_id: Company identifier
             doc_type: Type of document
             file_path: Path to document
             file_content: Content (ignored in mock)
@@ -124,14 +124,14 @@ class MockScanner:
         
         # Store parsed document
         doc_id = self._store_parsed_document(
-            company_id, doc_type, file_path, len(file_content), 
+            tenant_id, doc_type, file_path, len(file_content), 
             {'mock': True, 'file_name': file_name}, len(gaps)
         )
         
         # Store gaps
         gap_ids = []
         for gap in gaps:
-            gap_id = self._store_authority_gap(company_id, doc_id, file_path, gap)
+            gap_id = self._store_authority_gap(tenant_id, doc_id, file_path, gap)
             gap_ids.append(gap_id)
         
         return {
@@ -141,18 +141,18 @@ class MockScanner:
             'gaps': gaps
         }
     
-    def _store_parsed_document(self, company_id: str, doc_type: str, file_path: str, 
+    def _store_parsed_document(self, tenant_id: str, doc_type: str, file_path: str, 
                                 file_size: int, entities: Dict, gaps_found: int) -> str:
         """Store parsed document in database"""
         cursor = self.conn.cursor()
         
         cursor.execute("""
             INSERT INTO parsed_documents 
-            (company_id, doc_type, file_name, file_path, file_size, parsed_entities, gaps_found)
+            (tenant_id, doc_type, file_name, file_path, file_size, parsed_entities, gaps_found)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING doc_id
         """, (
-            company_id, doc_type, file_path.split('/')[-1], file_path,
+            tenant_id, doc_type, file_path.split('/')[-1], file_path,
             file_size, entities, gaps_found
         ))
         
@@ -162,7 +162,7 @@ class MockScanner:
         
         return str(doc_id)
     
-    def _store_authority_gap(self, company_id: str, doc_id: str, doc_source: str, 
+    def _store_authority_gap(self, tenant_id: str, doc_id: str, doc_source: str, 
                              gap: Dict[str, Any]) -> str:
         """Store authority gap in database"""
         cursor = self.conn.cursor()
@@ -172,13 +172,13 @@ class MockScanner:
         
         cursor.execute("""
             INSERT INTO authority_gaps 
-            (company_id, document_source, gap_type, severity, decision_point,
+            (tenant_id, document_source, gap_type, severity, decision_point,
              current_authority_holder, execution_system, accountability_gap,
              override_frequency, time_sensitivity, a2a_candidacy_score)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING gap_id
         """, (
-            company_id, doc_source, gap['type'], gap['severity'],
+            tenant_id, doc_source, gap['type'], gap['severity'],
             gap['decision_point'], gap.get('current_authority_holder'),
             gap.get('execution_system'), gap.get('accountability_gap'),
             gap.get('override_frequency', 0), gap.get('time_sensitivity'),
@@ -221,7 +221,7 @@ class MockScanner:
         
         return min(1.0, score)
     
-    def get_gaps(self, company_id: str, status: str = None) -> List[Dict[str, Any]]:
+    def get_gaps(self, tenant_id: str, status: str = None) -> List[Dict[str, Any]]:
         """Get all authority gaps for a company"""
         cursor = self.conn.cursor()
         
@@ -232,9 +232,9 @@ class MockScanner:
                        accountability_gap, override_frequency,
                        time_sensitivity, a2a_candidacy_score, status
                 FROM authority_gaps
-                WHERE company_id = %s AND status = %s
+                WHERE tenant_id = %s AND status = %s
                 ORDER BY a2a_candidacy_score DESC, created_at DESC
-            """, (company_id, status))
+            """, (tenant_id, status))
         else:
             cursor.execute("""
                 SELECT gap_id, gap_type, severity, decision_point,
@@ -242,9 +242,9 @@ class MockScanner:
                        accountability_gap, override_frequency,
                        time_sensitivity, a2a_candidacy_score, status
                 FROM authority_gaps
-                WHERE company_id = %s
+                WHERE tenant_id = %s
                 ORDER BY a2a_candidacy_score DESC, created_at DESC
-            """, (company_id,))
+            """, (tenant_id,))
         
         gaps = []
         for row in cursor.fetchall():

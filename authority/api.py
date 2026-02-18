@@ -54,7 +54,7 @@ else:
 
 # Models
 class ScanRequest(BaseModel):
-    company_id: str
+    tenant_id: str
     doc_type: str  # BPMN, SOP, RACI, INCIDENT_LOG, APPROVAL_WORKFLOW, AUDIT
 
 class ScanResponse(BaseModel):
@@ -83,7 +83,7 @@ class GapListResponse(BaseModel):
 # A2A Models
 class GenerateUseCaseRequest(BaseModel):
     gap_id: str
-    company_id: str
+    tenant_id: str
 
 class Agent(BaseModel):
     name: str
@@ -144,7 +144,7 @@ class ImpactEstimate(BaseModel):
 # Endpoints
 @app.post("/api/v1/authority/scan", response_model=ScanResponse)
 async def scan_document(
-    company_id: str,
+    tenant_id: str,
     doc_type: str,
     file: UploadFile = File(...)
 ) -> Any:
@@ -152,7 +152,7 @@ async def scan_document(
     Upload and scan a document for authority gaps
     
     Args:
-        company_id: Company identifier
+        tenant_id: Company identifier
         doc_type: Type of document (BPMN, SOP, RACI, etc.)
         file: Document file to scan
     
@@ -165,7 +165,7 @@ async def scan_document(
     
     # Scan document
     result = scanner.scan_document(
-        company_id=company_id,
+        tenant_id=tenant_id,
         doc_type=doc_type,
         file_path=file.filename,
         file_content=content_str
@@ -180,7 +180,7 @@ async def scan_document(
 
 @app.get("/api/v1/authority/gaps", response_model=GapListResponse)
 async def get_gaps(
-    company_id: str,
+    tenant_id: str,
     status: Optional[str] = None,
     severity: Optional[str] = None,
     limit: int = 100
@@ -189,7 +189,7 @@ async def get_gaps(
     Get all authority gaps for a company
     
     Args:
-        company_id: Company identifier
+        tenant_id: Company identifier
         status: Filter by status (PENDING, REVIEWED, CONVERTED, DISMISSED)
         severity: Filter by severity (HIGH, MEDIUM, LOW)
         limit: Maximum number of gaps to return
@@ -197,7 +197,7 @@ async def get_gaps(
     Returns:
         List of authority gaps
     """
-    gaps = scanner.get_gaps(company_id=company_id, status=status)
+    gaps = scanner.get_gaps(tenant_id=tenant_id, status=status)
     
     # Filter by severity if provided
     if severity:
@@ -237,14 +237,14 @@ async def generate_use_case(request: GenerateUseCaseRequest) -> Any:
     Generate an A2A use case from an authority gap
     
     Args:
-        request: Contains gap_id and company_id
+        request: Contains gap_id and tenant_id
     
     Returns:
         Generated A2A use case
     """
     try:
         # Get the gap details first
-        gaps = scanner.get_gaps(company_id=request.company_id)
+        gaps = scanner.get_gaps(tenant_id=request.tenant_id)
         gap = next((g for g in gaps if g['gap_id'] == request.gap_id), None)
         
         if not gap:
@@ -269,21 +269,21 @@ async def generate_use_case(request: GenerateUseCaseRequest) -> Any:
 
 @app.get("/api/v1/a2a/use-cases", response_model=UseCaseListResponse)
 async def get_use_cases(
-    company_id: str = "company-demo",
+    tenant_id: str = "00000000-0000-0000-0000-000000000001",
     pattern_type: Optional[str] = None
 ) -> Any:
     """
     Get all A2A use cases for a company
     
     Args:
-        company_id: Company identifier
+        tenant_id: Company identifier
         pattern_type: Optional filter by pattern (Arbitration, Escalation, etc.)
     
     Returns:
         List of A2A use cases
     """
     try:
-        use_cases = use_case_generator.get_use_cases(company_id, pattern_type)
+        use_cases = use_case_generator.get_use_cases(tenant_id, pattern_type)
         
         # Convert to response format
         formatted_cases = []
@@ -306,10 +306,10 @@ async def get_use_cases(
         raise HTTPException(status_code=500, detail=f"Failed to fetch use cases: {str(e)}")
 
 @app.get("/api/v1/a2a/use-cases/{use_case_id}", response_model=UseCase)
-async def get_use_case(use_case_id: str, company_id: str = "company-demo") -> Any:
+async def get_use_case(use_case_id: str, tenant_id: str = "00000000-0000-0000-0000-000000000001") -> Any:
     """Get a specific A2A use case by ID"""
     try:
-        use_cases = use_case_generator.get_use_cases(company_id)
+        use_cases = use_case_generator.get_use_cases(tenant_id)
         use_case = next((uc for uc in use_cases if uc['use_case_id'] == use_case_id), None)
         
         if not use_case:
@@ -401,13 +401,13 @@ async def run_simulation(request: SimulateRequest) -> None:
         cursor = db_conn.cursor()
         cursor.execute("""
             INSERT INTO simulation_results 
-            (simulation_id, use_case_id, company_id, scenario, verdict,
+            (simulation_id, use_case_id, tenant_id, scenario, verdict,
              authority_flow, final_decision, execution_time_ms)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             simulation_id,
             request.use_case_id,
-            'company-demo',
+            '00000000-0000-0000-0000-000000000001',
             json.dumps(request.scenario),
             verdict,
             json.dumps([step.dict() for step in steps]),

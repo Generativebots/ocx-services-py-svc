@@ -47,11 +47,11 @@ class BusinessImpactEstimator:
         estimate_id = str(uuid.uuid4())
         cursor.execute("""
             INSERT INTO business_impact_estimates 
-            (estimate_id, use_case_id, company_id, current_monthly_cost,
+            (estimate_id, use_case_id, tenant_id, current_monthly_cost,
              a2a_monthly_savings, net_monthly_savings, annual_roi,
              payback_period_months, assumptions)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (estimate_id, impact['use_case_id'], 'company-demo',
+        """, (estimate_id, impact['use_case_id'], '00000000-0000-0000-0000-000000000001',
               impact['current_monthly_cost'], impact['a2a_monthly_savings'],
               impact['net_monthly_savings'], impact['annual_roi'],
               impact['payback_period_months'], impact['assumptions']))

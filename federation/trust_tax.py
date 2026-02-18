@@ -33,13 +33,14 @@ class TrustTaxEngine:
     
     BASE_RATE = 0.01  # $0.01 per trust event
     
-    def __init__(self, supabase_url: str = None, supabase_key: str = None) -> None:
+    def __init__(self, supabase_url: str = None, supabase_key: str = None, tenant_id: str = None) -> None:
         """
         Initialize Trust Tax Engine.
         
         Args:
             supabase_url: Supabase project URL (or from SUPABASE_URL env)
             supabase_key: Supabase service key (or from SUPABASE_SERVICE_KEY env)
+            tenant_id: Optional tenant ID for governance config override
         """
         import os
         from supabase import create_client
@@ -53,6 +54,16 @@ class TrustTaxEngine:
         else:
             self.client = create_client(url, key)
             logger.info("Trust Tax Engine initialized with Supabase")
+        
+        # Override base rate from governance config
+        if tenant_id:
+            try:
+                from config.governance_config import get_tenant_governance_config
+                cfg = get_tenant_governance_config(tenant_id)
+                self.BASE_RATE = cfg.get("per_event_tax_rate", 0.01)
+                logger.info(f"TrustTaxEngine configured from tenant governance: BASE_RATE={self.BASE_RATE}")
+            except ImportError:
+                pass
         
         # P1 FIX #10: Batch insert buffer for high-throughput events.
         # Instead of one INSERT per event, buffer up to BATCH_SIZE events

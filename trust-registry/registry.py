@@ -4,7 +4,7 @@ import uuid
 import datetime
 import threading
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 from supabase import create_client, Client
 import redis
 from redis.commands.bf import BFInfo

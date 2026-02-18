@@ -34,6 +34,7 @@ class KillSwitch:
         self,
         backend_url: str = None,
         pubsub_topic: str = None,
+        tenant_id: str = None,
     ) -> None:
         self.backend_url = backend_url or os.environ.get(
             "OCX_BACKEND_URL", "http://localhost:8080"
@@ -43,6 +44,16 @@ class KillSwitch:
         )
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
+        
+        # Override threshold from governance config
+        if tenant_id:
+            try:
+                from config.governance_config import get_tenant_governance_config
+                cfg = get_tenant_governance_config(tenant_id)
+                self.THRESHOLD = cfg.get("kill_switch_threshold", 0.3)
+                logger.info(f"KillSwitch configured from tenant governance: THRESHOLD={self.THRESHOLD}")
+            except ImportError:
+                pass
     
     def check_and_enforce(
         self,

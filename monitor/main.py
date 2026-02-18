@@ -14,7 +14,7 @@ from collections import Counter
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
 import logging
 logger = logging.getLogger(__name__)
 

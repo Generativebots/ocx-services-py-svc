@@ -15,9 +15,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY . .
 
-# Cloud Run injects PORT env var; default to 8000
-ENV PORT=8000
+# Cloud Run injects PORT=8080
+ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 
-# Run the Regulator API (FastAPI) via uvicorn
-CMD exec uvicorn regulator_api:app --host 0.0.0.0 --port ${PORT}
+EXPOSE 8080
+
+# Run via run.py (reads PORT from env, starts uvicorn internally)
+CMD ["python", "run.py"]

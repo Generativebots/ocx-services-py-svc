@@ -108,11 +108,22 @@ class OCXStandardsCommittee:
     SUPERMAJORITY_THRESHOLD = 0.75  # 75% required for approval
     VOTING_PERIOD_DAYS = 14  # 2 weeks
     
-    def __init__(self) -> None:
+    def __init__(self, tenant_id: str = None) -> None:
         self.members: Dict[str, CommitteeMember] = {}
         self.proposals: Dict[str, GovernanceProposal] = {}
         self.protocol_versions: List[str] = ["1.0"]
         self.current_version = "1.0"
+        
+        # Override from governance config if available
+        if tenant_id:
+            try:
+                from config.governance_config import get_tenant_governance_config
+                cfg = get_tenant_governance_config(tenant_id)
+                self.SUPERMAJORITY_THRESHOLD = cfg.get("supermajority_threshold", 0.75)
+                logger.info(f"Standards Committee configured from tenant governance: "
+                           f"supermajority={self.SUPERMAJORITY_THRESHOLD}")
+            except ImportError:
+                pass
         
         # Initialize default committee members
         self._initialize_committee()

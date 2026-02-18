@@ -17,11 +17,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY . .
 
-# Environment variables (defaults)
-ENV PORT=8000
+# Cloud Run injects PORT=8080
+ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
-ENV REDIS_URL="redis://localhost:6379"
 ENV LOG_LEVEL="INFO"
 
-# Run via uvicorn (FastAPI wraps the background monitor thread)
+EXPOSE 8080
+
+# No run.py — use uvicorn directly with main:app
 CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT}
