@@ -95,12 +95,18 @@ class EBCLContractRuntime:
     
     def _generate_ebcl_from_use_case(self, use_case) -> str:
         """Generate EBCL code from use case"""
+        from config.platform_config_store import get_platform_default
+
         # Extract use case details
         title = use_case[2]
         description = use_case[3]
         agent1_action = use_case[4]
         agent2_action = use_case[5]
         authority_gap = use_case[6]
+
+        # Read contract parameters from platform config
+        required_trust = get_platform_default("scanner", "required_trust_level", default=0.5)
+        trust_tax = get_platform_default("scanner", "trust_tax_rate", default=0.10)
         
         # Generate EBCL contract
         ebcl_code = f"""
@@ -123,14 +129,14 @@ contract {title.replace(' ', '_')}:
     # Authority requirements
     authority:
         gap: "{authority_gap}"
-        required_trust_level: 0.5
-        trust_tax_rate: 0.10
+        required_trust_level: {required_trust}
+        trust_tax_rate: {trust_tax}
     
     # Execution flow
     flow:
         step handshake:
             agent1 -> agent2: initiate_handshake()
-            require: trust_level >= 0.5
+            require: trust_level >= {required_trust}
             on_success: goto step_execute
             on_failure: goto step_reject
         

@@ -20,7 +20,9 @@ from functools import lru_cache
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# DEFAULT VALUES — mirror the Go DefaultConfig() and Supabase table defaults
+# SERVER-LEVEL DEFAULTS — used as base for tenant-specific configs.
+# When get_tenant_governance_config() is called with a real tenantID, it loads
+# from Supabase and merges on top of these. These values match the DB seed data.
 # ============================================================================
 
 DEFAULT_GOVERNANCE_CONFIG: Dict[str, Any] = {
@@ -129,14 +131,22 @@ def get_tenant_governance_config(tenant_id: str) -> Dict[str, Any]:
     Lookup order:
     1. In-memory cache
     2. Supabase tenant_governance_config table
-    3. Hardcoded defaults (fail-safe)
+    3. Platform defaults (fail-safe)
 
     Args:
-        tenant_id: The tenant UUID
+        tenant_id: The tenant UUID — REQUIRED, from login context
 
     Returns:
         Dict with governance parameters
+
+    Raises:
+        ValueError: if tenant_id is blank or whitespace
     """
+    if not tenant_id or not tenant_id.strip():
+        raise ValueError(
+            "tenant_id is required — it must come from the authenticated login context"
+        )
+
     # 1. Cache hit
     if tenant_id in _tenant_config_cache:
         return _tenant_config_cache[tenant_id]

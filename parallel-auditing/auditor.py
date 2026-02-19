@@ -62,10 +62,14 @@ class JuryVerifier:
     Consensus threshold determines approval
     """
     
-    def __init__(self, num_agents: int = 10, consensus_threshold: float = 0.75) -> None:
-        self.num_agents = num_agents
-        self.consensus_threshold = consensus_threshold
-        self.agent_ids = [f"jury-agent-{i}" for i in range(num_agents)]
+    def __init__(self, num_agents: int = None, consensus_threshold: float = None) -> None:
+        # Server-level defaults — per-tenant overrides loaded at request time
+        self.num_agents = num_agents if num_agents is not None else 10
+        self.consensus_threshold = (
+            consensus_threshold if consensus_threshold is not None
+            else 0.75
+        )
+        self.agent_ids = [f"jury-agent-{i}" for i in range(self.num_agents)]
     
     async def verify_evidence(self, evidence: EvidenceRecord) -> Dict[str, Any]:
         """
@@ -187,7 +191,8 @@ class EntropyVerifier:
     """
     
     def __init__(self) -> None:
-        self.history_window = 100  # Number of recent decisions to analyze
+        # Server-level default — per-tenant overrides loaded at request time
+        self.history_window = 100
         self.decision_history = []
     
     async def verify_evidence(self, evidence: EvidenceRecord) -> Dict[str, Any]:
@@ -431,6 +436,7 @@ class ParallelAuditor:
     """
     
     def __init__(self) -> None:
+        # Server-level defaults — per-tenant overrides loaded at request time
         self.jury = JuryVerifier(num_agents=10, consensus_threshold=0.75)
         self.entropy = EntropyVerifier()
         self.escrow = EscrowVerifier()
@@ -569,8 +575,9 @@ class ContinuousAuditingService:
     Monitors Evidence Vault for new evidence and triggers parallel audits
     """
     
-    def __init__(self, poll_interval: int = 60) -> None:
-        self.poll_interval = poll_interval
+    def __init__(self, poll_interval: int = None) -> None:
+        # Server-level default — per-tenant overrides loaded at request time
+        self.poll_interval = poll_interval if poll_interval is not None else 60
         self.auditor = ParallelAuditor()
         self.last_audit_time = datetime.utcnow()
         self.running = False

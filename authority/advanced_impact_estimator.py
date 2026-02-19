@@ -27,20 +27,20 @@ class Industry(Enum):
 class ImpactAssumptions:
     """User-editable assumptions for impact calculation"""
     # Time savings
-    avg_time_saved_per_transaction_minutes: float = 5.0
+    avg_time_saved_per_transaction_minutes: float = None
     transactions_per_day: int = 100
     working_days_per_year: int = 250
-    hourly_labor_cost: float = 50.0
+    hourly_labor_cost: float = None
     
     # Error reduction
-    current_error_rate: float = 0.05  # 5%
-    target_error_rate: float = 0.01   # 1%
-    avg_cost_per_error: float = 500.0
+    current_error_rate: float = None
+    target_error_rate: float = None
+    avg_cost_per_error: float = None
     
     # Trust tax
     current_trust_level: float = 0.5
     target_trust_level: float = 0.85
-    base_trust_tax_rate: float = 0.10
+    base_trust_tax_rate: float = None
     transaction_value: float = 10000.0
     
     # Growth
@@ -54,10 +54,32 @@ class ImpactAssumptions:
     change_management_risk: float = 0.20  # 20% resistance
     
     # Costs
-    implementation_cost: float = 100000.0
-    annual_maintenance_cost: float = 20000.0
-    training_cost_per_user: float = 500.0
+    implementation_cost: float = None
+    annual_maintenance_cost: float = None
+    training_cost_per_user: float = None
     number_of_users: int = 50
+
+    def __post_init__(self):
+        from config.platform_config_store import get_platform_default
+
+        if self.base_trust_tax_rate is None:
+            self.base_trust_tax_rate = get_platform_default("scanner", "trust_tax_rate", default=0.10)
+        if self.hourly_labor_cost is None:
+            self.hourly_labor_cost = get_platform_default("impact", "hourly_labor_cost", default=50.0)
+        if self.avg_time_saved_per_transaction_minutes is None:
+            self.avg_time_saved_per_transaction_minutes = get_platform_default("impact", "avg_time_saved_per_tx_min", default=5.0)
+        if self.current_error_rate is None:
+            self.current_error_rate = get_platform_default("impact", "current_error_rate", default=0.05)
+        if self.target_error_rate is None:
+            self.target_error_rate = get_platform_default("impact", "target_error_rate", default=0.01)
+        if self.avg_cost_per_error is None:
+            self.avg_cost_per_error = get_platform_default("impact", "avg_cost_per_error", default=500.0)
+        if self.implementation_cost is None:
+            self.implementation_cost = get_platform_default("impact", "implementation_cost", default=100000.0)
+        if self.annual_maintenance_cost is None:
+            self.annual_maintenance_cost = get_platform_default("impact", "annual_maintenance_cost", default=20000.0)
+        if self.training_cost_per_user is None:
+            self.training_cost_per_user = get_platform_default("impact", "training_cost_per_user", default=500.0)
 
 
 class AdvancedImpactEstimator:

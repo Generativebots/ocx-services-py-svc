@@ -246,31 +246,46 @@ Return a JSON object with these fields:
     
     def _calculate_candidacy_score(self, gap: Dict[str, Any]) -> float:
         """Calculate A2A candidacy score (0.0 - 1.0)"""
+        from config.platform_config_store import get_platform_default
+
         score = 0.0
         
-        # High severity = higher score
+        # Severity weights from platform config
+        sev_high_w = get_platform_default("scanner", "severity_high_weight", default=0.4)
+        sev_med_w = get_platform_default("scanner", "severity_medium_weight", default=0.2)
+
         if gap['severity'] == 'HIGH':
-            score += 0.4
+            score += sev_high_w
         elif gap['severity'] == 'MEDIUM':
-            score += 0.2
+            score += sev_med_w
         
-        # Frequent overrides = higher score
+        # Override frequency thresholds and weights from platform config
+        freq_high_thresh = get_platform_default("scanner", "override_freq_high_threshold", default=10)
+        freq_med_thresh = get_platform_default("scanner", "override_freq_med_threshold", default=5)
+        freq_high_w = get_platform_default("scanner", "override_freq_high_weight", default=0.3)
+        freq_med_w = get_platform_default("scanner", "override_freq_med_weight", default=0.2)
+        freq_low_w = get_platform_default("scanner", "override_freq_low_weight", default=0.1)
+
         freq = gap.get('override_frequency', 0)
-        if freq > 10:
-            score += 0.3
-        elif freq > 5:
-            score += 0.2
+        if freq > freq_high_thresh:
+            score += freq_high_w
+        elif freq > freq_med_thresh:
+            score += freq_med_w
         elif freq > 0:
-            score += 0.1
+            score += freq_low_w
         
-        # Time-sensitive = higher score
+        # Time sensitivity weights from platform config
+        ts_sec_w = get_platform_default("scanner", "time_sens_seconds_weight", default=0.3)
+        ts_min_w = get_platform_default("scanner", "time_sens_minutes_weight", default=0.2)
+        ts_hrs_w = get_platform_default("scanner", "time_sens_hours_weight", default=0.1)
+
         time_sens = gap.get('time_sensitivity', 'hours')
         if time_sens == 'seconds':
-            score += 0.3
+            score += ts_sec_w
         elif time_sens == 'minutes':
-            score += 0.2
+            score += ts_min_w
         elif time_sens == 'hours':
-            score += 0.1
+            score += ts_hrs_w
         
         return min(1.0, score)
     
