@@ -95,6 +95,7 @@ class OCXClient:
         api_key: str = None,
         agent_id: str = None,
         timeout: int = 30,
+        fail_open: bool = False,
         on_block: Callable = None,
         on_escrow: Callable = None,
     ) -> None:
@@ -103,6 +104,7 @@ class OCXClient:
         self.api_key = api_key or os.environ.get("OCX_API_KEY", "")
         self.agent_id = agent_id or f"py-agent-{uuid.uuid4().hex[:8]}"
         self.timeout = timeout
+        self.fail_open = fail_open
         self.on_block = on_block
         self.on_escrow = on_escrow
         self._session = requests.Session()
@@ -204,10 +206,11 @@ class OCXClient:
             return result
             
         except requests.RequestException as e:
-            # Fail-open or fail-closed based on config
-            print(f"⚠️ OCX governance request failed: {e}")
+            # Fail-closed by default: block tool calls when governance is unreachable
+            fallback_verdict = "ALLOW" if self.fail_open else "BLOCK"
+            logger.warning("OCX governance request failed: %s (fail_open=%s)", e, self.fail_open)
             return GovernanceResult(
-                verdict="ALLOW",
+                verdict=fallback_verdict,
                 reason=f"Governance unavailable: {e}",
                 arguments=arguments or {},
             )
@@ -228,7 +231,7 @@ class OCXClient:
         """Get the agent's current trust score and tier."""
         try:
             resp = self._session.get(
-                f"{self.gateway_url}/api/reputation/{self.agent_id}",
+                f"{self.gateway_url}/api/v1/reputation/{self.agent_id}",
                 timeout=10,
             )
             data = resp.json()

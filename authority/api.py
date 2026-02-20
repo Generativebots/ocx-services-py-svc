@@ -24,7 +24,7 @@ app = FastAPI(title="Authority Discovery API", version="1.0.0")
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -40,7 +40,7 @@ if USE_MOCK:
     scanner = MockScanner(db_conn)
     use_case_generator = A2AUseCaseGenerator(db_conn)
     impact_estimator = BusinessImpactEstimator(db_conn)
-    print("✅ Using Mock Scanner for demo")
+    logger.info("Using Mock Scanner for demo")
 else:
     import psycopg2
     db_conn = psycopg2.connect(db_url)
@@ -50,7 +50,7 @@ else:
     )
     use_case_generator = A2AUseCaseGenerator(db_conn)
     impact_estimator = BusinessImpactEstimator(db_conn)
-    print("✅ Using Real Scanner with Claude AI")
+    logger.info("Using Real Scanner with Claude AI")
 
 # Models
 class ScanRequest(BaseModel):

@@ -18,5 +18,13 @@ steps:
       - '--allow-unauthenticated'
       - '--set-env-vars'
       - 'DATABASE_URL=$$DATABASE_URL,ANTHROPIC_API_KEY=$$ANTHROPIC_API_KEY'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '1'
+      - '--min-instances'
+      - '1'
+      - '--max-instances'
+      - '3'
 images:
   - 'gcr.io/$PROJECT_ID/authority-discovery'

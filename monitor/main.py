@@ -25,7 +25,7 @@ app = FastAPI(title="OCX Monitor Service", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -75,7 +75,7 @@ def get_redis_connection() -> Any:
         r.ping()
         return r
     except Exception as e:
-        print(f"Waiting for Redis at {REDIS_URL}... ({e})")
+        logger.warning("Waiting for Redis at %s... (%s)", REDIS_URL, e)
         return None
 
 # ============================================================================
@@ -93,7 +93,7 @@ def calculate_shannon_entropy(data_points) -> int:
 # ============================================================================
 def ingest_sops_to_ape(r) -> None:
     """Hot-load SOP policies into Redis for the APE engine."""
-    print("🚀 APE Engine: Initializing recursive semantic parsing...")
+    logger.info("APE Engine: Initializing recursive semantic parsing...")
     if r:
         try:
             r.hset("policy:FIN-001", mapping={
@@ -101,9 +101,9 @@ def ingest_sops_to_ape(r) -> None:
                 "action_if_exceeded": "DENY",
                 "logic_operator": ">"
             })
-            print("✅ Policy Registry: Hot-loaded SOP logic into Redis.")
+            logger.info("Policy Registry: Hot-loaded SOP logic into Redis.")
         except Exception as e:
-            print(f"❌ Failed to load policy: {e}")
+            logger.error("Failed to load policy: %s", e)
 
 def monitor_agent_signals(r) -> None:
     """
@@ -111,7 +111,7 @@ def monitor_agent_signals(r) -> None:
     Runs as a background thread so it doesn't block the FastAPI server.
     """
     global monitor_state
-    print("📊 Pulse Monitor: Starting Shannon Entropy calculation...")
+    logger.info("Pulse Monitor: Starting Shannon Entropy calculation...")
     
     while True:
         sample_intervals = None
@@ -121,7 +121,7 @@ def monitor_agent_signals(r) -> None:
                 if raw:
                     sample_intervals = [float(x) for x in raw]
             except Exception as e:
-                print(f"⚠️ Redis read failed: {e}")
+                logger.warning("Redis read failed: %s", e)
 
         # Fallback to mock data if Redis is empty or unavailable
         if not sample_intervals:
@@ -130,7 +130,7 @@ def monitor_agent_signals(r) -> None:
         entropy = calculate_shannon_entropy(sample_intervals)
         
         if entropy < ENTROPY_THRESHOLD:
-            print(f"⚠️ ALERT: Low Entropy ({entropy:.2f} bits). Possible Collusion.")
+            logger.warning("ALERT: Low Entropy (%.2f bits). Possible Collusion.", entropy)
             status = "LOCKDOWN"
         else:
             status = "HEALTHY"
@@ -175,7 +175,7 @@ def start_background_monitor() -> None:
     
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
-    print("🔍 Monitor background thread started")
+    logger.info("Monitor background thread started")
 
 
 if __name__ == "__main__":

@@ -66,7 +66,7 @@ def main() -> None:
         entries = supabase_client.query_all()
         return LedgerStatsResponse(total_entries=len(entries))
     
-    print(f"📒 Starting OCX Ledger on {args.host}:{args.port}")
+    logger.info("Starting OCX Ledger on %s:%s", args.host, args.port)
     uvicorn.run(app, host=args.host, port=args.port)
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ app = FastAPI(title="OCX Trust Registry (The Heart)")
 # Enable CORS for Frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -70,7 +70,7 @@ async def evaluate_intent(req: EvaluationRequest, request: Request = None) -> No
     # Ensure Trace ID
     trace_id = req.trace_id or f"trace-{uuid.uuid4()}"
     
-    print(f"⚖️  Processing Intent from {req.agent_id} [Trace: {trace_id}]")
+    logger.info("Processing Intent from %s [Trace: %s]", req.agent_id, trace_id)
     
     # 0. PROTOCOL CHECK & METADATA EXTRACTION
     metadata = {}
@@ -89,12 +89,12 @@ async def evaluate_intent(req: EvaluationRequest, request: Request = None) -> No
                 vk_hex = agent_id_header
                 vk = VerifyingKey.from_string(bytes.fromhex(vk_hex), curve=NIST256p)
                 if vk.verify(bytes.fromhex(signature), payload_hash.encode()):
-                    print(f"🔐 Protocol Verified: Valid Signature from {agent_id_header[:8]}...")
+                    logger.info("Protocol Verified: Valid Signature from %s...", agent_id_header[:8])
                     metadata["verified_identity"] = True
                 else:
                     raise HTTPException(status_code=401, detail="Invalid Signature")
             except Exception as e:
-                print(f"❌ Protocol Error: {e}")
+                logger.error("Protocol Error: %s", e)
                 pass
     
     # 1. THE JURY (Consensus)
