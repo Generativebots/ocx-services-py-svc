@@ -9,7 +9,7 @@ class BusinessImpactEstimator:
     def __init__(self, db_conn) -> None:
         self.conn = db_conn
     
-    def calculate_impact(self, use_case_id: str, assumptions: Dict[str, Any]) -> Dict[str, Any]:
+    def calculate_impact(self, use_case_id: str, assumptions: Dict[str, Any], tenant_id: str = "") -> Dict[str, Any]:
         # Current costs
         manual_cost = assumptions.get('override_frequency', 0) * assumptions.get('avg_time_per_override', 1) * assumptions.get('hourly_rate', 50)
         error_cost = assumptions.get('error_rate', 0) * assumptions.get('error_cost', 1000)
@@ -38,11 +38,11 @@ class BusinessImpactEstimator:
             'assumptions': assumptions
         }
         
-        estimate_id = self._store_estimate(impact)
+        estimate_id = self._store_estimate(impact, tenant_id)
         impact['estimate_id'] = estimate_id
         return impact
     
-    def _store_estimate(self, impact: Dict[str, Any]) -> str:
+    def _store_estimate(self, impact: Dict[str, Any], tenant_id: str = "") -> str:
         cursor = self.conn.cursor()
         estimate_id = str(uuid.uuid4())
         cursor.execute("""
@@ -51,7 +51,7 @@ class BusinessImpactEstimator:
              a2a_monthly_savings, net_monthly_savings, annual_roi,
              payback_period_months, assumptions)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (estimate_id, impact['use_case_id'], '00000000-0000-0000-0000-000000000001',
+        """, (estimate_id, impact['use_case_id'], tenant_id,
               impact['current_monthly_cost'], impact['a2a_monthly_savings'],
               impact['net_monthly_savings'], impact['annual_roi'],
               impact['payback_period_months'], impact['assumptions']))

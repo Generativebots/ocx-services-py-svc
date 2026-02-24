@@ -37,7 +37,7 @@ class AuthorityContractGenerator:
     def __init__(self, db_conn) -> None:
         self.conn = db_conn
 
-    def generate_contract(self, use_case_id: str) -> Dict[str, Any]:
+    def generate_contract(self, use_case_id: str, tenant_id: str = "") -> Dict[str, Any]:
         """Generate authority contract from use case.
 
         The contract is stored in LOCKED_PRE_COMPILE status.
@@ -75,7 +75,7 @@ class AuthorityContractGenerator:
         }
 
         # Store contract
-        contract_id = self._store_contract(use_case_id, contract)
+        contract_id = self._store_contract(use_case_id, contract, tenant_id)
         contract['contract_id'] = contract_id
 
         logger.info(
@@ -388,7 +388,7 @@ class AuthorityContractGenerator:
             'agents_involved': row[2]
         }
 
-    def _store_contract(self, use_case_id: str, contract: Dict) -> str:
+    def _store_contract(self, use_case_id: str, contract: Dict, tenant_id: str = "") -> str:
         cursor = self.conn.cursor()
         contract_id = str(uuid.uuid4())
         contract_yaml = yaml.dump(contract, default_flow_style=False)
@@ -400,7 +400,7 @@ class AuthorityContractGenerator:
              enforcement, audit_config, status)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
-            contract_id, use_case_id, '00000000-0000-0000-0000-000000000001',
+            contract_id, use_case_id, tenant_id,
             contract_yaml, contract['version'],
             contract['parties'], contract['decision_point'],
             contract['authority_rules'], contract['enforcement'],

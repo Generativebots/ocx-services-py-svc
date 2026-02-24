@@ -261,7 +261,7 @@ async def generate_use_case(request: GenerateUseCaseRequest) -> Any:
         }
         
         # Generate use case
-        use_case = use_case_generator.generate_use_case(request.gap_id, canvas)
+        use_case = use_case_generator.generate_use_case(request.gap_id, canvas, tenant_id=request.tenant_id)
         
         return UseCase(**use_case)
     except Exception as e:
@@ -269,7 +269,7 @@ async def generate_use_case(request: GenerateUseCaseRequest) -> Any:
 
 @app.get("/api/v1/a2a/use-cases", response_model=UseCaseListResponse)
 async def get_use_cases(
-    tenant_id: str = "00000000-0000-0000-0000-000000000001",
+    tenant_id: str,
     pattern_type: Optional[str] = None
 ) -> Any:
     """
@@ -306,7 +306,7 @@ async def get_use_cases(
         raise HTTPException(status_code=500, detail=f"Failed to fetch use cases: {str(e)}")
 
 @app.get("/api/v1/a2a/use-cases/{use_case_id}", response_model=UseCase)
-async def get_use_case(use_case_id: str, tenant_id: str = "00000000-0000-0000-0000-000000000001") -> Any:
+async def get_use_case(use_case_id: str, tenant_id: str) -> Any:
     """Get a specific A2A use case by ID"""
     try:
         use_cases = use_case_generator.get_use_cases(tenant_id)
@@ -407,7 +407,7 @@ async def run_simulation(request: SimulateRequest) -> None:
         """, (
             simulation_id,
             request.use_case_id,
-            '00000000-0000-0000-0000-000000000001',
+            request.scenario.get('tenant_id', ''),
             json.dumps(request.scenario),
             verdict,
             json.dumps([step.dict() for step in steps]),

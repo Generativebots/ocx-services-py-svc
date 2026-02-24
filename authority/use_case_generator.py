@@ -23,7 +23,7 @@ class A2AUseCaseGenerator:
     def __init__(self, db_conn) -> None:
         self.conn = db_conn
     
-    def generate_use_case(self, gap_id: str, canvas: Dict[str, Any]) -> Dict[str, Any]:
+    def generate_use_case(self, gap_id: str, canvas: Dict[str, Any], tenant_id: str = "") -> Dict[str, Any]:
         """
         Generate an A2A use case from an authority gap and canvas
         
@@ -50,7 +50,7 @@ class A2AUseCaseGenerator:
             use_case = self._generate_recovery(gap_id, canvas)
         
         # Store use case
-        use_case_id = self._store_use_case(use_case)
+        use_case_id = self._store_use_case(use_case, tenant_id)
         use_case['use_case_id'] = use_case_id
         
         return use_case
@@ -209,7 +209,7 @@ Health Monitor checks every 5 minutes.
 If unavailable > 5 minutes, Backup Agent takes over.
 State transfer via Redis snapshot."""
     
-    def _store_use_case(self, use_case: Dict[str, Any]) -> str:
+    def _store_use_case(self, use_case: Dict[str, Any], tenant_id: str = "") -> str:
         """Store use case in database"""
         cursor = self.conn.cursor()
         
@@ -222,7 +222,7 @@ State transfer via Redis snapshot."""
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             use_case_id,
-            '00000000-0000-0000-0000-000000000001',  # TODO: Get from context
+            tenant_id,
             use_case['gap_id'],
             use_case['pattern_type'],
             use_case['title'],
