@@ -60,7 +60,7 @@ class KillSwitch:
         agent_id: str,
         score: float,
         verdict: str,
-        tenant_id: str = "default",
+        tenant_id: str,
     ) -> Dict[str, Any]:
         """
         Checks if the score is below threshold.

@@ -175,6 +175,9 @@ CREATE TABLE IF NOT EXISTS verdicts (
     tenant_id UUID NOT NULL REFERENCES tenants(tenant_id),
     request_id TEXT NOT NULL,
     agent_id UUID REFERENCES agents(agent_id),
+    process_id UUID,      -- execution context: which process
+    run_id     UUID,      -- execution context: which run
+    step_id    UUID,      -- execution context: which step
     pid INTEGER,
     binary_hash TEXT,
     action TEXT NOT NULL,
@@ -187,6 +190,8 @@ CREATE TABLE IF NOT EXISTS verdicts (
 CREATE INDEX IF NOT EXISTS idx_verdicts_tenant ON verdicts(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_verdicts_agent ON verdicts(agent_id);
 CREATE INDEX IF NOT EXISTS idx_verdicts_request ON verdicts(request_id);
+CREATE INDEX IF NOT EXISTS idx_verdicts_run ON verdicts(run_id);
+CREATE INDEX IF NOT EXISTS idx_verdicts_process ON verdicts(process_id);
 
 -- =============================================================================
 -- SECTION 5: HANDSHAKE SESSIONS
@@ -258,6 +263,8 @@ CREATE TABLE IF NOT EXISTS quarantine_records (
     quarantine_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(tenant_id),
     agent_id UUID NOT NULL REFERENCES agents(agent_id),
+    process_id  UUID,     -- execution context: which process
+    run_id      UUID,     -- execution context: which run
     reason TEXT NOT NULL,
     alert_source TEXT,
     quarantined_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -350,6 +357,9 @@ CREATE TABLE IF NOT EXISTS governance_ledger (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     transaction_id TEXT NOT NULL UNIQUE,
     agent_id UUID NOT NULL REFERENCES agents(agent_id),
+    process_id UUID,      -- execution context: which process
+    run_id     UUID,      -- execution context: which run
+    step_id    UUID,      -- execution context: which step
     action TEXT NOT NULL,
     policy_version TEXT,
     jury_verdict TEXT,
@@ -364,6 +374,7 @@ CREATE TABLE IF NOT EXISTS governance_ledger (
 CREATE INDEX IF NOT EXISTS idx_governance_ledger_agent ON governance_ledger(agent_id);
 CREATE INDEX IF NOT EXISTS idx_governance_ledger_timestamp ON governance_ledger(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_governance_ledger_hash ON governance_ledger(block_hash);
+CREATE INDEX IF NOT EXISTS idx_governance_ledger_run ON governance_ledger(run_id);
 
 -- =============================================================================
 -- SECTION 9: BILLING & REWARDS
@@ -373,6 +384,9 @@ CREATE TABLE IF NOT EXISTS billing_transactions (
     transaction_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(tenant_id),
     request_id TEXT NOT NULL,
+    process_id  UUID,     -- execution context: which process
+    run_id      UUID,     -- execution context: which run
+    step_id     UUID,     -- execution context: which step
     trust_score FLOAT NOT NULL,
     transaction_value FLOAT DEFAULT 1.0,
     trust_tax FLOAT NOT NULL,
@@ -747,6 +761,9 @@ CREATE TABLE IF NOT EXISTS evidence (
     agent_id TEXT NOT NULL,
     agent_type TEXT NOT NULL,
     tenant_id UUID NOT NULL REFERENCES tenants(tenant_id),
+    process_id UUID,      -- execution context: which process
+    run_id     UUID,      -- execution context: which run
+    step_id    UUID,      -- execution context: which step
     environment TEXT NOT NULL,
     CHECK (environment IN ('DEV', 'STAGING', 'PROD')),
     event_type TEXT NOT NULL,
@@ -984,6 +1001,9 @@ CREATE TABLE IF NOT EXISTS session_audit_log (
     session_id     TEXT NOT NULL,
     tenant_id      UUID NOT NULL REFERENCES tenants(tenant_id),
     agent_id       UUID NOT NULL REFERENCES agents(agent_id),
+    process_id     UUID,      -- execution context: which process
+    run_id         UUID,      -- execution context: which run
+    step_id        UUID,      -- execution context: which step
     event_type     TEXT NOT NULL,
     ip_address     TEXT,
     user_agent     TEXT,
@@ -1315,6 +1335,9 @@ CREATE TABLE IF NOT EXISTS sandbox_executions (
     tenant_id       UUID NOT NULL REFERENCES tenants(tenant_id),
     agent_id        TEXT NOT NULL,
     transaction_id  TEXT NOT NULL,
+    process_id      UUID,      -- execution context: which process
+    run_id          UUID,      -- execution context: which run
+    step_id         UUID,      -- execution context: which step
     sandbox_type    TEXT NOT NULL DEFAULT 'gvisor',
     CHECK (sandbox_type IN ('gvisor', 'wasm', 'docker', 'mock')),
     status          TEXT NOT NULL DEFAULT 'PENDING',
@@ -1386,6 +1409,9 @@ CREATE TABLE IF NOT EXISTS jit_entitlements (
     tenant_id       UUID NOT NULL REFERENCES tenants(tenant_id),
     agent_id        TEXT NOT NULL,
     permission      TEXT NOT NULL,
+    process_id      UUID,      -- execution context: which process
+    run_id          UUID,      -- execution context: which run
+    step_id         UUID,      -- execution context: which step
     status          TEXT NOT NULL DEFAULT 'ACTIVE',
     CHECK (status IN ('ACTIVE', 'EXPIRED', 'REVOKED')),
     ttl_seconds     INTEGER NOT NULL,
@@ -2105,12 +2131,362 @@ CREATE POLICY "Service role has full access to intent_agent_bindings"
     ON intent_agent_bindings FOR ALL USING (auth.role() = 'service_role');
 
 -- =============================================================================
+-- SECTION 29: INTENT ARCHITECT (Process → Intent → Agent Pipelines)
+-- =============================================================================
+-- DB-backed process versioning, step definitions, DAG edges, execution runs,
+-- and per-step execution logs. All tenant-scoped with RLS.
+-- =============================================================================
+
+-- 29.1: Processes — top-level process definitions
+CREATE TABLE IF NOT EXISTS ia_processes (
+    process_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    description TEXT,
+    status      TEXT NOT NULL DEFAULT 'ACTIVE',
+    CHECK (status IN ('ACTIVE', 'ARCHIVED')),
+    created_by  TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(tenant_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ia_processes_tenant ON ia_processes(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_ia_processes_status ON ia_processes(status);
+
+ALTER TABLE ia_processes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to ia_processes"
+    ON ia_processes FOR ALL USING (auth.role() = 'service_role');
+
+-- 29.2: Process Versions — max 10 per process, 1 ACTIVE, 1 DRAFT
+CREATE TABLE IF NOT EXISTS ia_process_versions (
+    version_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    process_id  UUID NOT NULL REFERENCES ia_processes(process_id) ON DELETE CASCADE,
+    version_num INTEGER NOT NULL DEFAULT 1,
+    label       TEXT,                          -- e.g. "v1.0", "Holiday Rules"
+    status      TEXT NOT NULL DEFAULT 'DRAFT',
+    CHECK (status IN ('ACTIVE', 'DRAFT', 'ARCHIVED')),
+    created_by  TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(process_id, version_num)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ia_pv_tenant ON ia_process_versions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_ia_pv_process ON ia_process_versions(process_id);
+CREATE INDEX IF NOT EXISTS idx_ia_pv_status ON ia_process_versions(status);
+
+-- Enforce: only 1 ACTIVE version per process
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ia_pv_one_active
+    ON ia_process_versions (process_id) WHERE status = 'ACTIVE';
+
+-- Enforce: only 1 DRAFT version per process
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ia_pv_one_draft
+    ON ia_process_versions (process_id) WHERE status = 'DRAFT';
+
+ALTER TABLE ia_process_versions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to ia_process_versions"
+    ON ia_process_versions FOR ALL USING (auth.role() = 'service_role');
+
+-- 29.3: Intent Steps — individual steps within a process version
+CREATE TABLE IF NOT EXISTS ia_intent_steps (
+    step_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    version_id      UUID NOT NULL REFERENCES ia_process_versions(version_id) ON DELETE CASCADE,
+    label           TEXT NOT NULL,              -- intent key, e.g. "verify_identity"
+    description     TEXT,
+    risk_level      TEXT NOT NULL DEFAULT 'GREEN',
+    CHECK (risk_level IN ('GREEN', 'AMBER', 'RED')),
+    hitl            BOOLEAN NOT NULL DEFAULT FALSE,
+    agent_id        UUID REFERENCES agents(agent_id),
+    agent_name      TEXT,                       -- denormalized for fast reads
+    input_schema    TEXT,                       -- expected input description
+    output_schema   TEXT,                       -- expected output description
+    position_x      INTEGER DEFAULT 60,        -- canvas X coordinate
+    position_y      INTEGER DEFAULT 100,       -- canvas Y coordinate
+    step_order      INTEGER NOT NULL DEFAULT 0, -- ordering within version
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ia_steps_tenant ON ia_intent_steps(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_ia_steps_version ON ia_intent_steps(version_id);
+CREATE INDEX IF NOT EXISTS idx_ia_steps_agent ON ia_intent_steps(agent_id);
+
+ALTER TABLE ia_intent_steps ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to ia_intent_steps"
+    ON ia_intent_steps FOR ALL USING (auth.role() = 'service_role');
+
+-- 29.4: Step Edges — DAG edges connecting steps within a version
+CREATE TABLE IF NOT EXISTS ia_step_edges (
+    edge_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    version_id  UUID NOT NULL REFERENCES ia_process_versions(version_id) ON DELETE CASCADE,
+    source_step UUID NOT NULL REFERENCES ia_intent_steps(step_id) ON DELETE CASCADE,
+    target_step UUID NOT NULL REFERENCES ia_intent_steps(step_id) ON DELETE CASCADE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(version_id, source_step, target_step)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ia_edges_tenant ON ia_step_edges(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_ia_edges_version ON ia_step_edges(version_id);
+
+ALTER TABLE ia_step_edges ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to ia_step_edges"
+    ON ia_step_edges FOR ALL USING (auth.role() = 'service_role');
+
+-- 29.5: Process Runs — each execution of a process version
+CREATE TABLE IF NOT EXISTS ia_process_runs (
+    run_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    process_id      UUID NOT NULL REFERENCES ia_processes(process_id) ON DELETE CASCADE,
+    version_id      UUID NOT NULL REFERENCES ia_process_versions(version_id) ON DELETE CASCADE,
+    run_number      INTEGER NOT NULL DEFAULT 1,
+    status          TEXT NOT NULL DEFAULT 'RUNNING',
+    CHECK (status IN ('RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED')),
+    is_test_run     BOOLEAN NOT NULL DEFAULT FALSE, -- TRUE = draft version test execution
+    triggered_by    TEXT,                            -- user/system that triggered
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ,
+    duration_ms     INTEGER,
+    input_data      JSONB,                           -- run-level input payload
+    summary         TEXT                             -- human-readable outcome
+);
+
+CREATE INDEX IF NOT EXISTS idx_ia_runs_tenant ON ia_process_runs(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_ia_runs_process ON ia_process_runs(process_id);
+CREATE INDEX IF NOT EXISTS idx_ia_runs_version ON ia_process_runs(version_id);
+CREATE INDEX IF NOT EXISTS idx_ia_runs_status ON ia_process_runs(status);
+CREATE INDEX IF NOT EXISTS idx_ia_runs_started ON ia_process_runs(started_at DESC);
+
+ALTER TABLE ia_process_runs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to ia_process_runs"
+    ON ia_process_runs FOR ALL USING (auth.role() = 'service_role');
+
+-- 29.6: Step Executions — per-step results within a run
+CREATE TABLE IF NOT EXISTS ia_step_executions (
+    execution_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    run_id          UUID NOT NULL REFERENCES ia_process_runs(run_id) ON DELETE CASCADE,
+    step_id         UUID NOT NULL REFERENCES ia_intent_steps(step_id) ON DELETE CASCADE,
+    agent_id        UUID REFERENCES agents(agent_id),
+    status          TEXT NOT NULL DEFAULT 'PENDING',
+    CHECK (status IN ('PENDING', 'RUNNING', 'PASSED', 'FAILED', 'WAITING', 'SKIPPED')),
+    output_message  TEXT,                        -- e.g. "Identity verified — match score 0.98"
+    error_message   TEXT,
+    input_data      JSONB,                       -- actual input for this step
+    output_data     JSONB,                       -- actual output from this step
+    started_at      TIMESTAMPTZ,
+    completed_at    TIMESTAMPTZ,
+    duration_ms     INTEGER,
+    retry_count     INTEGER DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ia_sexec_tenant ON ia_step_executions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_ia_sexec_run ON ia_step_executions(run_id);
+CREATE INDEX IF NOT EXISTS idx_ia_sexec_step ON ia_step_executions(step_id);
+CREATE INDEX IF NOT EXISTS idx_ia_sexec_status ON ia_step_executions(status);
+
+ALTER TABLE ia_step_executions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to ia_step_executions"
+    ON ia_step_executions FOR ALL USING (auth.role() = 'service_role');
+
+-- Intent Architect aggregate view
+CREATE OR REPLACE VIEW ia_process_summary AS
+SELECT
+    p.process_id,
+    p.tenant_id,
+    p.name AS process_name,
+    p.status AS process_status,
+    pv.version_id,
+    pv.version_num,
+    pv.status AS version_status,
+    s.step_id,
+    s.label AS intent_key,
+    s.risk_level,
+    s.hitl,
+    s.agent_id,
+    s.agent_name,
+    (SELECT COUNT(*) FROM ia_process_runs r WHERE r.version_id = pv.version_id AND r.tenant_id = p.tenant_id) AS total_runs,
+    (SELECT COUNT(*) FROM ia_process_runs r WHERE r.version_id = pv.version_id AND r.status = 'FAILED' AND r.tenant_id = p.tenant_id) AS failed_runs
+FROM ia_processes p
+JOIN ia_process_versions pv ON p.process_id = pv.process_id AND pv.status = 'ACTIVE'
+JOIN ia_intent_steps s ON pv.version_id = s.version_id
+WHERE p.tenant_id = pv.tenant_id AND pv.tenant_id = s.tenant_id;
+
+-- =============================================================================
+-- SECTION 30: PATENT ENFORCEMENT EVENT TABLES
+-- Every patent feature that fires during a process run creates a record here.
+-- All tables carry process_id/run_id/step_id for end-to-end traceability.
+-- =============================================================================
+
+-- 30.1: eBPF Classification Events (Patent Claim 1 — Class A/B Triage)
+CREATE TABLE IF NOT EXISTS classification_events (
+    event_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id     UUID NOT NULL REFERENCES tenants(tenant_id),
+    agent_id      UUID REFERENCES agents(agent_id),
+    process_id    UUID,
+    run_id        UUID,
+    step_id       UUID,
+    transaction_id TEXT,
+    tool_name     TEXT NOT NULL,
+    action_class  TEXT NOT NULL,
+    CHECK (action_class IN ('CLASS_A', 'CLASS_B')),
+    trust_score   FLOAT,
+    entitlements  JSONB DEFAULT '[]',
+    final_verdict TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_class_evt_tenant ON classification_events(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_class_evt_agent ON classification_events(agent_id);
+CREATE INDEX IF NOT EXISTS idx_class_evt_run ON classification_events(run_id);
+CREATE INDEX IF NOT EXISTS idx_class_evt_process ON classification_events(process_id);
+CREATE INDEX IF NOT EXISTS idx_class_evt_created ON classification_events(created_at DESC);
+
+ALTER TABLE classification_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to classification_events"
+    ON classification_events FOR ALL USING (auth.role() = 'service_role');
+
+-- 30.2: Shannon Entropy Events (Patent Claim 3 — Signal Analysis)
+CREATE TABLE IF NOT EXISTS entropy_events (
+    event_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(tenant_id),
+    agent_id        UUID REFERENCES agents(agent_id),
+    process_id      UUID,
+    run_id          UUID,
+    step_id         UUID,
+    transaction_id  TEXT,
+    entropy_score   FLOAT,
+    jitter_ms       FLOAT,
+    anomaly_detected BOOLEAN DEFAULT FALSE,
+    analysis_type   TEXT DEFAULT 'SIGNAL',
+    CHECK (analysis_type IN ('SIGNAL', 'TEMPORAL', 'COMPRESSION', 'SEMANTIC')),
+    details         JSONB DEFAULT '{}',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_entropy_evt_tenant ON entropy_events(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_entropy_evt_agent ON entropy_events(agent_id);
+CREATE INDEX IF NOT EXISTS idx_entropy_evt_run ON entropy_events(run_id);
+CREATE INDEX IF NOT EXISTS idx_entropy_evt_created ON entropy_events(created_at DESC);
+
+ALTER TABLE entropy_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to entropy_events"
+    ON entropy_events FOR ALL USING (auth.role() = 'service_role');
+
+-- 30.3: Ghost State Simulation Events (Patent Claim 9 — Speculative State)
+CREATE TABLE IF NOT EXISTS ghost_state_events (
+    event_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(tenant_id),
+    agent_id        UUID REFERENCES agents(agent_id),
+    process_id      UUID,
+    run_id          UUID,
+    step_id         UUID,
+    transaction_id  TEXT NOT NULL,
+    tool_name       TEXT,
+    state_hash      TEXT,
+    policy_passed   BOOLEAN,
+    violations      JSONB DEFAULT '[]',
+    side_effect_count INTEGER DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ghost_evt_tenant ON ghost_state_events(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_ghost_evt_run ON ghost_state_events(run_id);
+CREATE INDEX IF NOT EXISTS idx_ghost_evt_created ON ghost_state_events(created_at DESC);
+
+ALTER TABLE ghost_state_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to ghost_state_events"
+    ON ghost_state_events FOR ALL USING (auth.role() = 'service_role');
+
+-- 30.4: SOP Drift Detection Events (Patent Claim 13)
+CREATE TABLE IF NOT EXISTS sop_drift_events (
+    event_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id             UUID NOT NULL REFERENCES tenants(tenant_id),
+    agent_id              UUID REFERENCES agents(agent_id),
+    process_id            UUID,
+    run_id                UUID,
+    step_id               UUID,
+    transaction_id        TEXT,
+    graph_id              TEXT,
+    path_edit_distance    FLOAT,
+    normalized_distance   FLOAT,
+    policy_violation_count INTEGER DEFAULT 0,
+    governance_tax_adj    FLOAT DEFAULT 1.0,
+    missing_steps         JSONB DEFAULT '[]',
+    extra_steps           JSONB DEFAULT '[]',
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sop_drift_evt_tenant ON sop_drift_events(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_sop_drift_evt_run ON sop_drift_events(run_id);
+CREATE INDEX IF NOT EXISTS idx_sop_drift_evt_created ON sop_drift_events(created_at DESC);
+
+ALTER TABLE sop_drift_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to sop_drift_events"
+    ON sop_drift_events FOR ALL USING (auth.role() = 'service_role');
+
+-- 30.5: CAE Continuous Assessment Events (Patent Claim 8)
+CREATE TABLE IF NOT EXISTS cae_events (
+    event_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id     UUID NOT NULL REFERENCES tenants(tenant_id),
+    agent_id      UUID REFERENCES agents(agent_id),
+    process_id    UUID,
+    run_id        UUID,
+    step_id       UUID,
+    token_id      TEXT,
+    trust_score   FLOAT,
+    drift_score   FLOAT,
+    action_taken  TEXT DEFAULT 'MONITOR',
+    CHECK (action_taken IN ('MONITOR', 'WARNING', 'REVOKE', 'BLOCK')),
+    details       JSONB DEFAULT '{}',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cae_evt_tenant ON cae_events(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_cae_evt_agent ON cae_events(agent_id);
+CREATE INDEX IF NOT EXISTS idx_cae_evt_run ON cae_events(run_id);
+CREATE INDEX IF NOT EXISTS idx_cae_evt_created ON cae_events(created_at DESC);
+
+ALTER TABLE cae_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to cae_events"
+    ON cae_events FOR ALL USING (auth.role() = 'service_role');
+
+-- 30.6: JIT Token Broker Events (Patent Claim 7)
+CREATE TABLE IF NOT EXISTS token_events (
+    event_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id     UUID NOT NULL REFERENCES tenants(tenant_id),
+    agent_id      UUID REFERENCES agents(agent_id),
+    process_id    UUID,
+    run_id        UUID,
+    step_id       UUID,
+    token_id      TEXT NOT NULL,
+    permission    TEXT,
+    trust_score   FLOAT,
+    attribution   TEXT,
+    expires_at    TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_token_evt_tenant ON token_events(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_token_evt_agent ON token_events(agent_id);
+CREATE INDEX IF NOT EXISTS idx_token_evt_run ON token_events(run_id);
+CREATE INDEX IF NOT EXISTS idx_token_evt_created ON token_events(created_at DESC);
+
+ALTER TABLE token_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to token_events"
+    ON token_events FOR ALL USING (auth.role() = 'service_role');
+
+-- =============================================================================
 -- MIGRATION COMPLETE!
 -- =============================================================================
--- Total Tables: 89 (86 + agent_policy_bindings + intent_agent_bindings + evidence_chain cols)
--- Views: 2 (activity_execution_stats, pending_approvals)
--- Indexes: 134+
--- RLS Policies: 32
+-- Total Tables: 101 (89 + 6 Intent Architect + 6 Patent Event tables)
+-- Views: 3 (activity_execution_stats, pending_approvals, ia_process_summary)
+-- Indexes: 180+
+-- RLS Policies: 44
 -- Extensions: vector (pgvector)
 -- Functions: match_documents (semantic search)
 -- =============================================================================

@@ -78,7 +78,7 @@ class PostgreSQLLedgerBackend(LedgerBackend):
         
         self.cursor.execute(query, (
             attestation_data['attestation_id'],
-            attestation_data.get('tenant_id', 'default'),
+            attestation_data.get('tenant_id', ''),
             attestation_data['ocx_instance_id'],
             attestation_data['agent_id'],
             attestation_data['audit_hash'],
@@ -143,7 +143,7 @@ class TrustAttestationLedger:
     Trust Attestation Ledger with Supabase/PostgreSQL backend.
     """
     
-    def __init__(self, ocx_instance_id: str, tenant_id: str = "default") -> None:
+    def __init__(self, ocx_instance_id: str, tenant_id: str = "") -> None:
         """
         Initialize Trust Attestation Ledger.
         
