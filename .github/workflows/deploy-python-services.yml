@@ -11,7 +11,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'ocx-services-py-svc/**'
+      - '**'
       - '.github/workflows/deploy-python-services.yml'
   workflow_dispatch:
     inputs:
@@ -86,14 +86,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ocx-services-py-svc
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: 'pip'
-          cache-dependency-path: ocx-services-py-svc/requirements.txt
+          cache-dependency-path: requirements.txt
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run tests
@@ -153,7 +153,7 @@ jobs:
 
       - name: Deploy ${{ matrix.service.name }}
         if: steps.check.outputs.should_deploy == 'true'
-        working-directory: ocx-services-py-svc/${{ matrix.service.dir }}
+        working-directory: ${{ matrix.service.dir }}
         env:
           SUFFIX: ${{ needs.resolve-env.outputs.suffix }}
           ENV_NAME: ${{ needs.resolve-env.outputs.env_name }}
