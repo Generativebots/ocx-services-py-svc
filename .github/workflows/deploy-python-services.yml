@@ -102,9 +102,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-  # ── Deploy ────────────────────────────────────────────────────────────────
-  deploy:
-    name: Deploy Services (${{ needs.resolve-env.outputs.env_name }})
+  # ── Build & Deploy ────────────────────────────────────────────────────────
+  build-and-deploy:
+    name: Build & Deploy (${{ needs.resolve-env.outputs.env_name }})
     needs: [resolve-env, test]
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve-env.outputs.env_name }}
@@ -123,6 +123,9 @@ jobs:
           - { name: ocx-evidence-vault,    dir: evidence-vault,    port: "8005" }
           - { name: ocx-authority,         dir: authority,         port: "8006" }
           - { name: ocx-process-mining,    dir: process-mining,    port: "8007" }
+
+    env:
+      IMAGE_NAME: gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ matrix.service.name }}
 
     steps:
       - uses: actions/checkout@v4
@@ -151,9 +154,27 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
+      - name: Configure Docker for GCR
+        if: steps.check.outputs.should_deploy == 'true'
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build Docker image
+        if: steps.check.outputs.should_deploy == 'true'
+        run: |
+          docker build \
+            -t $IMAGE_NAME:${{ github.sha }} \
+            -t $IMAGE_NAME:${{ needs.resolve-env.outputs.env_name }}-latest \
+            -f ${{ matrix.service.dir }}/Dockerfile \
+            ${{ matrix.service.dir }}
+
+      - name: Push Docker image
+        if: steps.check.outputs.should_deploy == 'true'
+        run: |
+          docker push $IMAGE_NAME:${{ github.sha }}
+          docker push $IMAGE_NAME:${{ needs.resolve-env.outputs.env_name }}-latest
+
       - name: Deploy ${{ matrix.service.name }}
         if: steps.check.outputs.should_deploy == 'true'
-        working-directory: ${{ matrix.service.dir }}
         env:
           SUFFIX: ${{ needs.resolve-env.outputs.suffix }}
           ENV_NAME: ${{ needs.resolve-env.outputs.env_name }}
@@ -165,7 +186,7 @@ jobs:
           echo "🚀 Deploying $SERVICE_NAME [${ENV_NAME}]"
 
           gcloud run deploy "$SERVICE_NAME" \
-            --source . \
+            --image=$IMAGE_NAME:${{ github.sha }} \
             --region=${{ env.GCP_REGION }} \
             --project=${{ secrets.GCP_PROJECT_ID }} \
             --platform=managed \
