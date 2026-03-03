@@ -8,11 +8,11 @@
 name: Deploy Python Services
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '**'
-      - '.github/workflows/deploy-python-services.yml'
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - '**'
+  #     - '.github/workflows/deploy-python-services.yml'
   workflow_dispatch:
     inputs:
       environment:
