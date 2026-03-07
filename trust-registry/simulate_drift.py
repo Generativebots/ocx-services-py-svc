@@ -37,7 +37,7 @@ def verify_drift() -> None:
     # 4. Call API
     import os
 
-    ledger_url = os.getenv("LEDGER_SERVICE_URL", "http://localhost:8000")
+    ledger_url = os.getenv("LEDGER_URL", "http://localhost:8007")
     response = requests.get(f"{ledger_url}/ledger/health/{AGENT_ID}")
     data = response.json()
     

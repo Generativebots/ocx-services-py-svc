@@ -133,9 +133,9 @@ class ServiceURLsConfig:
     trust_registry_url: str = os.getenv("TRUST_REGISTRY_URL", "http://localhost:8000")
     jury_service_url: str = os.getenv("JURY_SERVICE_URL", "http://localhost:8001")
     ocx_gateway_url: str = os.getenv("OCX_GATEWAY_URL", "http://localhost:8002")
-    activity_registry_url: str = os.getenv("ACTIVITY_REGISTRY_URL", "http://localhost:8003")
-    evidence_vault_url: str = os.getenv("EVIDENCE_VAULT_URL", "http://localhost:8004")
-    authority_url: str = os.getenv("AUTHORITY_URL", "http://localhost:8005")
+    activity_registry_url: str = os.getenv("ACTIVITY_REGISTRY_URL", "http://localhost:8002")
+    evidence_vault_url: str = os.getenv("EVIDENCE_VAULT_URL", "http://localhost:8003")
+    authority_url: str = os.getenv("AUTHORITY_URL", "http://localhost:8004")
 
 
 @dataclass
