@@ -140,7 +140,6 @@ class CognitiveAuditor:
     
     def __init__(
         self,
-        ape_service_url: str = None,
         jury_service_url: str = None,
         trust_threshold: float = 0.65,
         unanimous_required: bool = False,
@@ -148,8 +147,7 @@ class CognitiveAuditor:
         tenant_id: str = None,
     ) -> None:
         import os
-        self.ape_service_url = ape_service_url or os.getenv("APE_SERVICE_URL", "http://localhost:8000/ape")
-        self.jury_service_url = jury_service_url or os.getenv("JURY_SERVICE_URL", "http://localhost:8001/jury")
+        self.jury_service_url = jury_service_url or os.getenv("JURY_SERVICE_URL")
         self.trust_threshold = trust_threshold
         self.unanimous_required = unanimous_required
         self.quorum_threshold = quorum_threshold

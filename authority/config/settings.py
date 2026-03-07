@@ -129,13 +129,12 @@ class MonitoringConfig:
 
 @dataclass
 class ServiceURLsConfig:
-    """Internal service URLs"""
-    trust_registry_url: str = os.getenv("TRUST_REGISTRY_URL", "http://localhost:8000")
-    jury_service_url: str = os.getenv("JURY_SERVICE_URL", "http://localhost:8001")
-    ocx_gateway_url: str = os.getenv("OCX_GATEWAY_URL", "http://localhost:8002")
-    activity_registry_url: str = os.getenv("ACTIVITY_REGISTRY_URL", "http://localhost:8002")
-    evidence_vault_url: str = os.getenv("EVIDENCE_VAULT_URL", "http://localhost:8003")
-    authority_url: str = os.getenv("AUTHORITY_URL", "http://localhost:8004")
+    """Internal service URLs — set via Cloud Run secrets, defaults use dev Cloud Run naming"""
+    trust_registry_url: str = os.getenv("TRUST_REGISTRY_URL", "https://ocx-trust-registry-dev.run.app")
+    jury_service_url: str = os.getenv("JURY_SERVICE_URL", "https://ocx-jury-dev.run.app")
+    activity_registry_url: str = os.getenv("ACTIVITY_REGISTRY_URL", "https://ocx-activity-registry-dev.run.app")
+    evidence_vault_url: str = os.getenv("EVIDENCE_VAULT_URL", "https://ocx-evidence-vault-dev.run.app")
+    authority_url: str = os.getenv("AUTHORITY_URL", "https://ocx-authority-dev.run.app")
 
 
 @dataclass
