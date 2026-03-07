@@ -8,7 +8,7 @@ Usage:
     python run.py [--port PORT]
     
 Environment variables:
-    PORT: Server port (default: 8005)
+    PORT: Server port (default: 8004)
 """
 
 import os
@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="OCX Authority Service")
-    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8005")))
+    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8004")))
     parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
     args = parser.parse_args()
     

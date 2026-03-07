@@ -216,7 +216,7 @@ async def health():
 
 def main():
     """Entry point for the process mining service."""
-    port = int(os.environ.get("PORT", "8080"))
+    port = int(os.environ.get("PORT", "8008"))
     logger.info(f"Starting Process Mining Engine on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
 

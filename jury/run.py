@@ -3,10 +3,10 @@
 OCX Jury Service — Cloud Run entry point.
 FastAPI wrapper exposing gRPC audit logic via REST.
 
-Cloud Run requires an HTTP listener on $PORT (8080).
+Cloud Run sets $PORT (default: 8001 for local dev).
 
 Environment variables:
-    PORT: HTTP port (default: 8080, set by Cloud Run)
+    PORT: HTTP port (default: 8001, Cloud Run overrides to 8080)
     VLLM_BASE_URL: vLLM endpoint for LLM inference
 """
 
@@ -121,7 +121,7 @@ def audit_intent(req: AuditRequest):
 
 
 def main():
-    port = int(os.getenv("PORT", "8080"))
+    port = int(os.getenv("PORT", "8001"))
     logger.info(f"⚖️  Starting OCX Jury Service on 0.0.0.0:{port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
 
