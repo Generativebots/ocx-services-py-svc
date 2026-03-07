@@ -16,9 +16,9 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from .miner import ProcessMiner, Trace, Activity
-from .conformance import ConformanceChecker
-from .bottleneck import BottleneckAnalyzer
+from miner import ProcessMiner, Trace, Activity
+from conformance import ConformanceChecker
+from bottleneck import BottleneckAnalyzer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("process-mining-api")
@@ -84,14 +84,12 @@ async def ingest_trace(trace_input: TraceInput):
 
 
 @app.get("/discover")
-async def discover_processes(min_frequency: int = 2, tenant_id: Optional[str] = None):
-    """Run process discovery on ingested traces."""
-    # Filter traces by tenant if specified
-    traces = miner.traces
-    if tenant_id:
-        traces = [t for t in traces if t.tenant_id == tenant_id]
+async def discover_processes(tenant_id: str, min_frequency: int = 2):
+    """Run process discovery on ingested traces (tenant-scoped)."""
+    # Filter traces by tenant
+    traces = [t for t in miner.traces if t.tenant_id == tenant_id]
 
-    processes = miner.discover_processes(min_frequency=min_frequency, traces=traces if tenant_id else None)
+    processes = miner.discover_processes(min_frequency=min_frequency, traces=traces)
 
     return {
         "tenant_id": tenant_id,
@@ -160,11 +158,9 @@ async def check_conformance(request: ConformanceRequest):
 
 
 @app.get("/bottlenecks")
-async def analyze_bottlenecks(tenant_id: Optional[str] = None):
-    """Analyze performance bottlenecks in ingested traces."""
-    traces = miner.traces
-    if tenant_id:
-        traces = [t for t in traces if t.tenant_id == tenant_id]
+async def analyze_bottlenecks(tenant_id: str):
+    """Analyze performance bottlenecks in ingested traces (tenant-scoped)."""
+    traces = [t for t in miner.traces if t.tenant_id == tenant_id]
 
     report = bottleneck_analyzer.analyze(traces)
 
@@ -199,10 +195,12 @@ async def analyze_bottlenecks(tenant_id: Optional[str] = None):
 
 
 @app.get("/stats")
-async def get_stats():
-    """Get current mining statistics."""
+async def get_stats(tenant_id: str):
+    """Get current mining statistics (tenant-scoped)."""
+    tenant_traces = [t for t in miner.traces if t.tenant_id == tenant_id]
     return {
-        "total_traces": len(miner.traces),
+        "tenant_id": tenant_id,
+        "total_traces": len(tenant_traces),
         "activity_statistics": miner.get_activity_statistics(),
         "directly_follows_graph": {
             k: dict(v) for k, v in miner.get_directly_follows_graph().items()
@@ -218,7 +216,7 @@ async def health():
 
 def main():
     """Entry point for the process mining service."""
-    port = int(os.environ.get("PROCESS_MINING_PORT", "8090"))
+    port = int(os.environ.get("PORT", "8080"))
     logger.info(f"Starting Process Mining Engine on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
 

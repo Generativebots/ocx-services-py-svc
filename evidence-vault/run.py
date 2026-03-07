@@ -26,14 +26,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="OCX Evidence Vault Service")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8004")))
     parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
+    parser.add_argument("--workers", type=int,
+                        default=int(os.getenv("UVICORN_WORKERS", "4")),
+                        help="Number of uvicorn workers (default: UVICORN_WORKERS env or 4)")
     args = parser.parse_args()
     
     import uvicorn
-    from api import app
 
     
-    print(f"🔐 Starting OCX Evidence Vault on {args.host}:{args.port}")
-    uvicorn.run(app, host=args.host, port=args.port)
+    print(f"🔐 Starting OCX Evidence Vault on {args.host}:{args.port} (workers={args.workers})")
+    uvicorn.run("api:app", host=args.host, port=args.port, workers=args.workers)
 
 if __name__ == "__main__":
     main()

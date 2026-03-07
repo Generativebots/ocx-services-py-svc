@@ -182,6 +182,10 @@ async def create_activity(activity: ActivityCreate, request: Request, conn = Dep
     if not tenant_id:
         raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
 
+    # Use authenticated user ID for audit trail (falls back to client value)
+    authenticated_user = request.headers.get("X-User-ID") or activity.created_by or "system"
+    department = request.headers.get("X-Department")
+
     try:
         # Validate version format
         parse_version(activity.version)
@@ -195,9 +199,9 @@ async def create_activity(activity: ActivityCreate, request: Request, conn = Dep
         cursor.execute("""
             INSERT INTO activities (
                 name, version, status, ebcl_source, compiled_artifact,
-                owner, authority, created_by, hash, description, tags, category, tenant_id
+                owner, authority, created_by, hash, description, tags, category, tenant_id, department
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             RETURNING *
         """, (
@@ -208,12 +212,13 @@ async def create_activity(activity: ActivityCreate, request: Request, conn = Dep
             json.dumps(activity.compiled_artifact) if activity.compiled_artifact else None,
             activity.owner,
             activity.authority,
-            activity.created_by,
+            authenticated_user,
             activity_hash,
             activity.description,
             activity.tags,
             activity.category,
-            tenant_id
+            tenant_id,
+            department,
         ))
         
         result = cursor.fetchone()
@@ -231,11 +236,15 @@ async def create_activity(activity: ActivityCreate, request: Request, conn = Dep
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/activities/{activity_id}", response_model=ActivityResponse)
-async def get_activity(activity_id: str, conn = Depends(get_db)) -> Any:
-    """Get activity by ID"""
+async def get_activity(activity_id: str, request: Request, conn = Depends(get_db)) -> Any:
+    """Get activity by ID (tenant-scoped)"""
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    cursor.execute("SELECT * FROM activities WHERE activity_id = %s", (activity_id,))
+    cursor.execute("SELECT * FROM activities WHERE activity_id = %s AND tenant_id = %s", (activity_id, tenant_id))
     result = cursor.fetchone()
     
     if not result:
@@ -258,10 +267,16 @@ async def list_activities(
     if not tenant_id:
         raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
 
+    department = request.headers.get("X-Department")
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     query = "SELECT * FROM activities WHERE tenant_id = %s"
     params = [tenant_id]
+
+    # Department filter: show GLOBAL (NULL) + department-specific
+    if department:
+        query += " AND (department = %s OR department IS NULL)"
+        params.append(department)
     
     if status:
         query += " AND status = %s"
@@ -284,8 +299,12 @@ async def list_activities(
     return [ActivityResponse(**r) for r in results]
 
 @app.get("/api/v1/activities/latest/{name}", response_model=ActivityResponse)
-async def get_latest_activity(name: str, conn = Depends(get_db)) -> Any:
-    """Get latest version of an activity by name"""
+async def get_latest_activity(name: str, request: Request, conn = Depends(get_db)) -> Any:
+    """Get latest version of an activity by name (tenant-scoped)"""
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     cursor.execute("SELECT * FROM get_latest_version(%s)", (name,))
@@ -294,20 +313,27 @@ async def get_latest_activity(name: str, conn = Depends(get_db)) -> Any:
     if not result:
         raise HTTPException(status_code=404, detail=f"Activity {name} not found")
     
-    # Get full activity details
-    cursor.execute("SELECT * FROM activities WHERE activity_id = %s", (result['activity_id'],))
+    # Get full activity details (tenant-scoped)
+    cursor.execute("SELECT * FROM activities WHERE activity_id = %s AND tenant_id = %s", (result['activity_id'], tenant_id))
     activity = cursor.fetchone()
+    
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found for this tenant")
     
     return ActivityResponse(**activity)
 
 @app.patch("/api/v1/activities/{activity_id}", response_model=ActivityResponse)
-async def update_activity(activity_id: str, update: ActivityUpdate, conn = Depends(get_db)) -> Any:
+async def update_activity(activity_id: str, update: ActivityUpdate, request: Request, conn = Depends(get_db)) -> Any:
     """
-    Update activity metadata (description, tags, category)
+    Update activity metadata (description, tags, category) — tenant-scoped
     
     Note: EBCL source cannot be modified for deployed activities.
     Create a new version instead.
     """
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     # Build update query
@@ -329,8 +355,8 @@ async def update_activity(activity_id: str, update: ActivityUpdate, conn = Depen
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     
-    params.append(activity_id)
-    query = f"UPDATE activities SET {', '.join(updates)} WHERE activity_id = %s RETURNING *"
+    params.extend([activity_id, tenant_id])
+    query = f"UPDATE activities SET {', '.join(updates)} WHERE activity_id = %s AND tenant_id = %s RETURNING *"
     
     cursor.execute(query, params)
     result = cursor.fetchone()
@@ -346,12 +372,16 @@ async def update_activity(activity_id: str, update: ActivityUpdate, conn = Depen
 # ============================================================================
 
 @app.post("/api/v1/activities/{activity_id}/request-approval")
-async def request_approval(activity_id: str, request: ApprovalRequest, conn = Depends(get_db)) -> dict:
-    """Request approval for an activity"""
+async def request_approval(activity_id: str, request: ApprovalRequest, req: Request = None, conn = Depends(get_db)) -> dict:
+    """Request approval for an activity (tenant-scoped)"""
+    tenant_id = req.headers.get("X-Tenant-ID") if req else None
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Check activity exists and is in DRAFT or REVIEW status
-    cursor.execute("SELECT status FROM activities WHERE activity_id = %s", (activity_id,))
+    # Check activity exists and is in DRAFT or REVIEW status (tenant-scoped)
+    cursor.execute("SELECT status FROM activities WHERE activity_id = %s AND tenant_id = %s", (activity_id, tenant_id))
     result = cursor.fetchone()
     
     if not result:
@@ -391,14 +421,24 @@ async def approve_activity(
     activity_id: str,
     approval_id: str,
     response: ApprovalResponse,
+    request: Request,
     conn = Depends(get_db)
 ) -> dict:
     """
-    Approve or reject an activity
+    Approve or reject an activity (tenant-scoped)
     
     If all required approvals are granted, activity moves to APPROVED status
     """
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Verify activity belongs to tenant before processing approval
+    cursor.execute("SELECT 1 FROM activities WHERE activity_id = %s AND tenant_id = %s", (activity_id, tenant_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Activity not found")
     
     # Update approval
     cursor.execute("""
@@ -422,21 +462,24 @@ async def approve_activity(
     
     pending = cursor.fetchone()['pending']
     
+    # Use authenticated user for audit: who approved this?
+    authenticated_user = request.headers.get("X-User-ID") or approval['approver_id']
+    
     # If approved and no pending approvals, move to APPROVED
     if response.approval_status == ApprovalStatus.APPROVED and pending == 0:
         cursor.execute("""
             UPDATE activities
             SET status = %s, approved_by = %s, approved_at = NOW()
-            WHERE activity_id = %s
-        """, (ActivityStatus.APPROVED, approval['approver_id'], activity_id))
+            WHERE activity_id = %s AND tenant_id = %s
+        """, (ActivityStatus.APPROVED, authenticated_user, activity_id, tenant_id))
     
     # If rejected, move back to DRAFT
     elif response.approval_status == ApprovalStatus.REJECTED:
         cursor.execute("""
             UPDATE activities
             SET status = %s
-            WHERE activity_id = %s
-        """, (ActivityStatus.DRAFT, activity_id))
+            WHERE activity_id = %s AND tenant_id = %s
+        """, (ActivityStatus.DRAFT, activity_id, tenant_id))
     
     conn.commit()
     
@@ -532,9 +575,18 @@ async def deploy_activity(
     return DeploymentResponse(**deployment_result)
 
 @app.get("/api/v1/activities/{activity_id}/deployments", response_model=List[DeploymentResponse])
-async def list_deployments(activity_id: str, conn = Depends(get_db)) -> list:
-    """List all deployments for an activity"""
+async def list_deployments(activity_id: str, request: Request, conn = Depends(get_db)) -> list:
+    """List all deployments for an activity (tenant-scoped)"""
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Verify activity belongs to tenant
+    cursor.execute("SELECT 1 FROM activities WHERE activity_id = %s AND tenant_id = %s", (activity_id, tenant_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Activity not found")
     
     cursor.execute("""
         SELECT * FROM activity_deployments
@@ -610,15 +662,25 @@ async def suspend_activity(
     activity_id: str,
     reason: str,
     suspended_by: str,
+    request: Request,
     conn = Depends(get_db)
 ) -> dict:
     """
-    Suspend an activity (emergency stop)
+    Suspend an activity (emergency stop) — tenant-scoped
     
     - Immediately ends all active deployments
     - Sets activity status to SUSPENDED
     """
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Verify activity belongs to tenant
+    cursor.execute("SELECT 1 FROM activities WHERE activity_id = %s AND tenant_id = %s", (activity_id, tenant_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Activity not found")
     
     # End all active deployments
     cursor.execute("""
@@ -633,8 +695,8 @@ async def suspend_activity(
     cursor.execute("""
         UPDATE activities
         SET status = %s
-        WHERE activity_id = %s
-    """, (ActivityStatus.SUSPENDED, activity_id))
+        WHERE activity_id = %s AND tenant_id = %s
+    """, (ActivityStatus.SUSPENDED, activity_id, tenant_id))
     
     conn.commit()
     
@@ -662,12 +724,15 @@ async def create_new_version(
     """
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Get current activity
+    # Get current activity (no tenant check — uses activity_id FK, inherits tenant from parent)
     cursor.execute("SELECT * FROM activities WHERE activity_id = %s", (activity_id,))
     current = cursor.fetchone()
     
     if not current:
         raise HTTPException(status_code=404, detail="Activity not found")
+    
+    # Inherit tenant_id from the parent activity
+    tenant_id = current.get('tenant_id')
     
     # Calculate new version
     new_version = increment_version(current['version'], version_type)
@@ -676,8 +741,8 @@ async def create_new_version(
     cursor.execute("""
         INSERT INTO activities (
             name, version, status, ebcl_source, owner, authority,
-            created_by, description, tags, category
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            created_by, description, tags, category, tenant_id
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING activity_id
     """, (
         current['name'],
@@ -689,7 +754,8 @@ async def create_new_version(
         created_by,
         current['description'],
         current['tags'],
-        current['category']
+        current['category'],
+        tenant_id
     ))
     
     new_activity = cursor.fetchone()
@@ -719,25 +785,29 @@ async def create_new_version(
     }
 
 @app.get("/api/v1/activities/{activity_id}/versions")
-async def get_version_history(activity_id: str, conn = Depends(get_db)) -> Any:
-    """Get version history for an activity"""
+async def get_version_history(activity_id: str, request: Request, conn = Depends(get_db)) -> Any:
+    """Get version history for an activity (tenant-scoped)"""
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Get activity name
-    cursor.execute("SELECT name FROM activities WHERE activity_id = %s", (activity_id,))
+    # Get activity name (tenant-scoped)
+    cursor.execute("SELECT name FROM activities WHERE activity_id = %s AND tenant_id = %s", (activity_id, tenant_id))
     activity = cursor.fetchone()
     
     if not activity:
         raise HTTPException(status_code=404, detail="Activity not found")
     
-    # Get all versions
+    # Get all versions (tenant-scoped)
     cursor.execute("""
         SELECT a.*, v.change_summary, v.breaking_changes, v.version_type
         FROM activities a
         LEFT JOIN activity_versions v ON a.activity_id = v.activity_id
-        WHERE a.name = %s
+        WHERE a.name = %s AND a.tenant_id = %s
         ORDER BY a.created_at DESC
-    """, (activity['name'],))
+    """, (activity['name'], tenant_id))
     
     versions = cursor.fetchall()
     return versions
@@ -749,12 +819,22 @@ async def get_version_history(activity_id: str, conn = Depends(get_db)) -> Any:
 @app.get("/api/v1/activities/{activity_id}/executions")
 async def get_activity_executions(
     activity_id: str,
+    request: Request,
     limit: int = 100,
     offset: int = 0,
     conn = Depends(get_db)
 ) -> Any:
-    """Get execution history for an activity"""
+    """Get execution history for an activity (tenant-scoped)"""
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Verify activity belongs to tenant
+    cursor.execute("SELECT 1 FROM activities WHERE activity_id = %s AND tenant_id = %s", (activity_id, tenant_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Activity not found")
     
     cursor.execute("""
         SELECT * FROM activity_executions
@@ -766,9 +846,18 @@ async def get_activity_executions(
     return cursor.fetchall()
 
 @app.get("/api/v1/activities/{activity_id}/stats")
-async def get_activity_stats(activity_id: str, conn = Depends(get_db)) -> dict:
-    """Get execution statistics for an activity"""
+async def get_activity_stats(activity_id: str, request: Request, conn = Depends(get_db)) -> dict:
+    """Get execution statistics for an activity (tenant-scoped)"""
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Verify activity belongs to tenant
+    cursor.execute("SELECT 1 FROM activities WHERE activity_id = %s AND tenant_id = %s", (activity_id, tenant_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Activity not found")
     
     cursor.execute("""
         SELECT * FROM activity_execution_stats
@@ -790,11 +879,19 @@ async def get_activity_stats(activity_id: str, conn = Depends(get_db)) -> dict:
     return stats
 
 @app.get("/api/v1/approvals/pending")
-async def get_pending_approvals(conn = Depends(get_db)) -> Any:
-    """Get all pending approvals"""
+async def get_pending_approvals(request: Request, conn = Depends(get_db)) -> Any:
+    """Get pending approvals for this tenant"""
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    cursor.execute("SELECT * FROM pending_approvals")
+    cursor.execute("""
+        SELECT pa.* FROM pending_approvals pa
+        JOIN activities a ON pa.activity_id = a.activity_id
+        WHERE a.tenant_id = %s
+    """, (tenant_id,))
     return cursor.fetchall()
 
 # ============================================================================

@@ -229,75 +229,98 @@ class TrustCalculationEngine:
 
 
 # ============================================================================
-# IDENTITY DATABASE (Mock - would be Redis/Supabase in production)
+# IDENTITY DATABASE — Supabase-backed entity trust scores
 # ============================================================================
 
 class IdentityDatabase:
     """
-    Mock identity database for storing and retrieving entity scores.
-    In production, this would be backed by Redis or Supabase.
+    Identity database for storing and retrieving entity trust scores.
+    Queries the `agents` table in Supabase for real trust data.
+    Falls back to neutral defaults for unknown entities.
     """
     
     def __init__(self) -> None:
-        self.identities: Dict[str, EntityScores] = {}
         self.logger = logging.getLogger(__name__)
-        
-        # Seed with some test data
-        self._seed_test_data()
-    
-    def _seed_test_data(self) -> None:
-        """Seed database with test identities"""
-        self.identities = {
-            # High trust agent
-            "sha256:abc123": EntityScores(
-                audit=0.95,
-                reputation=0.90,
-                attestation=0.85,
-                history=0.80
-            ),
-            # Medium trust agent
-            "sha256:def456": EntityScores(
-                audit=0.70,
-                reputation=0.65,
-                attestation=0.60,
-                history=0.50
-            ),
-            # Low trust agent
-            "sha256:xyz789": EntityScores(
-                audit=0.30,
-                reputation=0.25,
-                attestation=0.20,
-                history=0.10
-            ),
-        }
+        self._cache: Dict[str, EntityScores] = {}
+        self._supabase_url = os.getenv("SUPABASE_URL", "")
+        self._supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
     
     async def get_scores(self, binary_hash: str) -> EntityScores:
         """
-        Retrieve entity scores by binary hash.
-        
-        Args:
-            binary_hash: SHA-256 hash of the binary
-            
-        Returns:
-            EntityScores or default neutral scores
+        Retrieve entity scores by binary hash / agent ID.
+        Queries Supabase agents table, falls back to neutral scores.
         """
-        scores = self.identities.get(binary_hash)
+        # Check local cache first
+        if binary_hash in self._cache:
+            return self._cache[binary_hash]
         
-        if scores is None:
-            # Default neutral scores for unknown entities
-            self.logger.warning(f"Unknown binary hash: {binary_hash}, using defaults")
-            scores = EntityScores(
-                audit=0.5,
-                reputation=0.5,
-                attestation=0.5,
-                history=0.0  # New entity has no history
-            )
+        # Query Supabase for agent trust data
+        if self._supabase_url and self._supabase_key:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    resp = await client.get(
+                        f"{self._supabase_url}/rest/v1/agents",
+                        params={
+                            "or": f"(agent_id.eq.{binary_hash},binary_hash.eq.{binary_hash})",
+                            "select": "trust_score,reputation_score,attestation_valid,interaction_count",
+                            "limit": "1",
+                        },
+                        headers={
+                            "apikey": self._supabase_key,
+                            "Authorization": f"Bearer {self._supabase_key}",
+                        },
+                    )
+                    if resp.status_code == 200:
+                        rows = resp.json()
+                        if rows:
+                            row = rows[0]
+                            scores = EntityScores(
+                                audit=float(row.get("trust_score", 0.5)),
+                                reputation=float(row.get("reputation_score", 0.5)),
+                                attestation=1.0 if row.get("attestation_valid", False) else 0.3,
+                                history=min(1.0, float(row.get("interaction_count", 0)) / 100.0),
+                            )
+                            self._cache[binary_hash] = scores
+                            return scores
+            except Exception as e:
+                self.logger.warning(f"Failed to query Supabase for scores: {e}")
         
+        # Neutral defaults for unknown entities
+        self.logger.warning(f"Unknown entity: {binary_hash}, using neutral defaults")
+        scores = EntityScores(
+            audit=0.5,
+            reputation=0.5,
+            attestation=0.5,
+            history=0.0  # New entity has no history
+        )
         return scores
     
     async def update_scores(self, binary_hash: str, scores: EntityScores) -> None:
-        """Update scores for an entity"""
-        self.identities[binary_hash] = scores
+        """Update scores for an entity (cache + DB)."""
+        self._cache[binary_hash] = scores
+        
+        if self._supabase_url and self._supabase_key:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    await client.patch(
+                        f"{self._supabase_url}/rest/v1/agents",
+                        params={"agent_id": f"eq.{binary_hash}"},
+                        json={
+                            "trust_score": scores.audit,
+                            "reputation_score": scores.reputation,
+                        },
+                        headers={
+                            "apikey": self._supabase_key,
+                            "Authorization": f"Bearer {self._supabase_key}",
+                            "Content-Type": "application/json",
+                            "Prefer": "return=minimal",
+                        },
+                    )
+            except Exception as e:
+                self.logger.warning(f"Failed to persist scores to Supabase: {e}")
+        
         self.logger.info(f"Updated scores for {binary_hash}")
 
 

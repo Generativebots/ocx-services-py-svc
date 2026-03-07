@@ -25,7 +25,7 @@ from rlhc.rlhc_service import cluster_decisions, HITLDecision
 logger = logging.getLogger(__name__)
 
 _DEFAULT_PORT = 50062
-_MAX_WORKERS = 10
+_MAX_WORKERS = int(os.getenv("RLHC_MAX_WORKERS", str(max(4, (os.cpu_count() or 2) * 2))))
 
 # In-memory pattern store (upgraded to DB in production)
 _pattern_store: dict = {}

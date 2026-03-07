@@ -266,7 +266,7 @@ class RegulatoryAIService:
             risk_color = "RED"
 
         # 5. Generate AI suggestion from DB templates
-        suggestion = self._generate_suggestion(risk_color, matched_keys, action_type)
+        suggestion = self._generate_suggestion(risk_color, matched_keys, action_type, tenant_id)
         next_steps = self._generate_next_steps(risk_color, matched_keys, tenant_id)
 
         classified_intent = matched_keys[0] if matched_keys else action_type
@@ -289,12 +289,16 @@ class RegulatoryAIService:
         return result
 
     def _generate_suggestion(
-        self, risk_color: str, intent_keys: List[str], action_type: str
+        self, risk_color: str, intent_keys: List[str], action_type: str,
+        tenant_id: str = None,
     ) -> str:
         """Generate AI suggestion from DB-stored suggestion templates."""
+        params = {"risk_color": f"eq.{risk_color}"}
+        if tenant_id:
+            params["tenant_id"] = f"eq.{tenant_id}"
         templates = _supabase_get(
             "gra_suggestion_templates",
-            {"risk_color": f"eq.{risk_color}"},
+            params,
         )
 
         if templates:
@@ -316,9 +320,12 @@ class RegulatoryAIService:
         self, risk_color: str, intent_keys: List[str], tenant_id: str
     ) -> List[str]:
         """Generate next-step recommendations from DB-stored step templates."""
+        params = {"risk_color": f"eq.{risk_color}"}
+        if tenant_id:
+            params["tenant_id"] = f"eq.{tenant_id}"
         steps_data = _supabase_get(
             "gra_next_step_templates",
-            {"risk_color": f"eq.{risk_color}"},
+            params,
         )
 
         if steps_data:

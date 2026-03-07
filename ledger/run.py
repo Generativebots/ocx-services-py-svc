@@ -26,6 +26,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="OCX Ledger Service")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8007")))
     parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
+    parser.add_argument("--workers", type=int,
+                        default=int(os.getenv("UVICORN_WORKERS", "4")),
+                        help="Number of uvicorn workers (default: UVICORN_WORKERS env or 4)")
     args = parser.parse_args()
     
     from fastapi import FastAPI
@@ -66,7 +69,7 @@ def main() -> None:
         entries = supabase_client.query_all()
         return LedgerStatsResponse(total_entries=len(entries))
     
-    logger.info("Starting OCX Ledger on %s:%s", args.host, args.port)
+    logger.info("Starting OCX Ledger on %s:%s (workers=%s)", args.host, args.port, args.workers)
     uvicorn.run(app, host=args.host, port=args.port)
 
 if __name__ == "__main__":

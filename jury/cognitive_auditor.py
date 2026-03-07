@@ -18,6 +18,9 @@ import json
 import asyncio
 from datetime import datetime, timedelta
 import httpx
+import os
+
+from prompt_injection_classifier import PromptInjectionClassifier
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -185,6 +188,50 @@ class CognitiveAuditor:
         """
         start_time = datetime.now()
         
+        # Step 0: Prompt Injection Scan (two-layer: keyword + ML)
+        # Runs BEFORE expensive intent extraction / jury / APE pipeline.
+        injection_classifier = PromptInjectionClassifier(tenant_id=tenant_id)
+        payload_text = json.dumps(request_payload, default=str)
+        injection_result = await injection_classifier.classify(payload_text)
+        
+        if injection_result.is_injection:
+            duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+            logger.warning(
+                f"INJECTION BLOCKED: tx={transaction_id}, agent={agent_id}, "
+                f"type={injection_result.attack_type}, layer={injection_result.layer}, "
+                f"confidence={injection_result.confidence:.2f}"
+            )
+            # Return immediate BLOCK — skip the rest of the pipeline
+            return CognitiveAuditResult(
+                transaction_id=transaction_id,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                intent=SemanticIntent(
+                    primary_action="INJECTION_DETECTED",
+                    target_resource=injection_result.attack_type,
+                    operation_type="BLOCKED",
+                    risk_category="SECURITY",
+                    confidence=injection_result.confidence,
+                    extracted_entities={"pattern": injection_result.matched_pattern},
+                    semantic_hash=hashlib.sha256(payload_text.encode()).hexdigest()[:16],
+                ),
+                rules_checked=0,
+                rule_matches=[],
+                violations=[],
+                baseline=self._get_baseline(agent_id),
+                anomaly_detected=True,
+                anomaly_type="prompt_injection",
+                anomaly_score=injection_result.confidence,
+                jury_votes=[],
+                unanimous=True,
+                weighted_consensus=0.0,
+                verdict=CognitiveVerdict.BLOCK,
+                trust_level=0.0,
+                reasoning=f"Prompt injection detected ({injection_result.layer} layer): "
+                          f"{injection_result.attack_type} — {injection_result.matched_pattern}",
+                audit_duration_ms=duration_ms,
+            )
+        
         # Step 1: Extract semantic intent
         intent = await self._extract_intent(request_payload, tool_id)
         
@@ -300,38 +347,83 @@ class CognitiveAuditor:
         """
         Match extracted intent against APE-generated policy rules.
         
-        In production, this would query the APE engine for tenant's rules.
+        Queries the policies table via Supabase for the tenant's active ENFORCE rules.
+        Falls back to built-in default rules if DB is unavailable.
         """
-        # Simulated APE rules (production: fetch from APE service)
-        rules = [
-            {
-                "id": "fin-001",
-                "name": "Financial Transfer Limit",
-                "applies_to": "transfer_funds",
-                "conditions": ["amount <= 10000", "entitlement:finance:write"],
-            },
-            {
-                "id": "data-001",
-                "name": "Data Deletion Approval",
-                "applies_to": "delete_record",
-                "conditions": ["entitlement:data:delete", "entitlement:admin:write"],
-            },
-            {
-                "id": "com-001",
-                "name": "External Communication Policy",
-                "applies_to": "send_communication",
-                "conditions": ["entitlement:email:send", "entitlement:external:access"],
-            },
-        ]
+        rules = []
+        
+        # 1. Try to load rules from DB via APE service / Supabase
+        try:
+            import httpx
+            supabase_url = os.environ.get("SUPABASE_URL", "")
+            supabase_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+            
+            if supabase_url and supabase_key:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(
+                        f"{supabase_url}/rest/v1/policies",
+                        params={
+                            "tenant_id": f"eq.{tenant_id}",
+                            "status": "eq.ACTIVE",
+                            "tier": "eq.ENFORCE",
+                            "select": "policy_id,name,logic,description",
+                        },
+                        headers={
+                            "apikey": supabase_key,
+                            "Authorization": f"Bearer {supabase_key}",
+                        },
+                    )
+                    if resp.status_code == 200:
+                        db_policies = resp.json()
+                        for p in db_policies:
+                            logic = {}
+                            if p.get("logic"):
+                                try:
+                                    logic = json.loads(p["logic"]) if isinstance(p["logic"], str) else p["logic"]
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                            rules.append({
+                                "id": p.get("policy_id", ""),
+                                "name": p.get("name", ""),
+                                "applies_to": logic.get("condition", "").split("==")[-1].strip().strip("'\"") if "==" in logic.get("condition", "") else "*",
+                                "conditions": self._parse_policy_conditions(logic),
+                            })
+                        logger.info(f"Loaded {len(rules)} ENFORCE policies from DB for tenant {tenant_id}")
+        except Exception as e:
+            logger.warning(f"Failed to load policies from DB, using defaults: {e}")
+        
+        # 2. Fallback: built-in default rules if DB returned nothing
+        if not rules:
+            rules = [
+                {
+                    "id": "fin-001",
+                    "name": "Financial Transfer Limit",
+                    "applies_to": "transfer_funds",
+                    "conditions": ["amount <= 10000", "entitlement:finance:write"],
+                },
+                {
+                    "id": "data-001",
+                    "name": "Data Deletion Approval",
+                    "applies_to": "delete_record",
+                    "conditions": ["entitlement:data:delete", "entitlement:admin:write"],
+                },
+                {
+                    "id": "com-001",
+                    "name": "External Communication Policy",
+                    "applies_to": "send_communication",
+                    "conditions": ["entitlement:email:send", "entitlement:external:access"],
+                },
+            ]
         
         matches = []
         for rule in rules:
-            if rule["applies_to"] == intent.primary_action:
+            applies_to = rule.get("applies_to", "*")
+            if applies_to == "*" or applies_to == intent.primary_action:
                 # Check conditions
                 met = []
                 unmet = []
                 
-                for cond in rule["conditions"]:
+                for cond in rule.get("conditions", []):
                     if cond.startswith("entitlement:"):
                         ent = cond.replace("entitlement:", "")
                         if ent in entitlements:
@@ -357,12 +449,27 @@ class CognitiveAuditor:
                     violation=violation,
                     severity="HIGH" if violation else "NONE",
                     explanation=f"Rule {rule['name']} {'violated' if violation else 'satisfied'}",
-                    required_conditions=rule["conditions"],
+                    required_conditions=rule.get("conditions", []),
                     met_conditions=met,
                     unmet_conditions=unmet,
                 ))
         
         return matches
+    
+    @staticmethod
+    def _parse_policy_conditions(logic: dict) -> List[str]:
+        """Parse policy logic JSON into condition strings for matching."""
+        conditions = []
+        if not logic:
+            return conditions
+        cond_str = logic.get("condition", "")
+        if "AND" in cond_str:
+            parts = cond_str.split("AND")
+            for p in parts:
+                conditions.append(p.strip())
+        elif cond_str:
+            conditions.append(cond_str.strip())
+        return conditions
     
     def _get_baseline(self, agent_id: str) -> Optional[BehavioralBaseline]:
         """Get or create behavioral baseline for agent."""
@@ -434,9 +541,47 @@ class CognitiveAuditor:
         """
         Get votes from multiple juror agents.
         
-        In production, this would call the actual Jury service.
+        Uses real multi-model LLM calls (GPT-4, Claude, Gemini) via llm_juror.py.
+        Falls back to rule-based deterministic voting if LLM is unavailable.
         """
-        # Simulate 3 jurors with different trust scores
+        try:
+            from llm_juror import MultiModelJury, LLMJurorVote
+            
+            jury = MultiModelJury(tenant_id=self.tenant_id if hasattr(self, 'tenant_id') else '')
+            llm_votes: List[LLMJurorVote] = await jury.get_votes(
+                agent_id=agent_id,
+                tool_id=intent.primary_action,
+                intent=intent,
+                violations=violations,
+            )
+            
+            # Convert LLMJurorVote to JurorVote for the existing consensus pipeline
+            votes = []
+            for llm_vote in llm_votes:
+                votes.append(JurorVote(
+                    juror_id=llm_vote.juror_id,
+                    trust_score=llm_vote.confidence,
+                    vote=llm_vote.vote,
+                    confidence=llm_vote.confidence,
+                    reasoning=llm_vote.reasoning,
+                    weight=llm_vote.confidence * llm_vote.confidence * getattr(
+                        next((j for j in jury.jurors if j.juror_id == llm_vote.juror_id), None),
+                        'weight_boost', 1.0
+                    ),
+                ))
+            return votes
+            
+        except Exception as e:
+            logger.warning(f"LLM jury failed, using rule-based fallback: {e}")
+            return self._get_fallback_jury_votes(agent_id, intent, violations)
+    
+    def _get_fallback_jury_votes(
+        self,
+        agent_id: str,
+        intent: SemanticIntent,
+        violations: List[APERuleMatch],
+    ) -> List[JurorVote]:
+        """Rule-based deterministic fallback for jury votes."""
         jurors = [
             ("juror-compliance", 0.90, "Compliance Expert"),
             ("juror-security", 0.85, "Security Analyst"),
@@ -445,7 +590,6 @@ class CognitiveAuditor:
         
         votes = []
         for juror_id, trust_score, role in jurors:
-            # Determine vote based on violations and intent
             if violations:
                 vote = "REJECT"
                 confidence = 0.95

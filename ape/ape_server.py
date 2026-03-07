@@ -50,10 +50,13 @@ class APEServiceImpl:
             context.set_details("document_text is required")
             return _empty_extraction_response()
 
-        # Call the business logic
+        # Call the business logic (with tenant LLM keys if provided)
         result = extract_policies(
             document_text=request.document_text,
             document_id=request.document_id or str(uuid.uuid4()),
+            tenant_id=getattr(request, 'tenant_id', ''),
+            llm_provider=getattr(request, 'llm_provider', ''),
+            llm_api_key=getattr(request, 'llm_api_key', ''),
         )
         extraction_hash = compute_extraction_hash(result)
 
@@ -143,7 +146,13 @@ class APEHTTPHandler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/extract":
-            req = type('Req', (), data)()
+            req = type('Req', (), {
+                'document_text': data.get('document_text', ''),
+                'document_id': data.get('document_id', 'unknown'),
+                'tenant_id': data.get('tenant_id', ''),
+                'llm_provider': data.get('llm_provider', ''),
+                'llm_api_key': data.get('llm_api_key', ''),
+            })()
             result = self.ape_svc.ExtractPolicies(req, None)
             self._respond(200, result)
         elif self.path == "/drift":

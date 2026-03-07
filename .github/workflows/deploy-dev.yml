@@ -1,0 +1,99 @@
+# =============================================================================
+# OCX Python Services — DEV Deployment
+# =============================================================================
+# Branch: dev | Environment: dev | Manual dispatch only
+# =============================================================================
+
+name: Deploy Python Services (Dev)
+
+on:
+  workflow_dispatch:
+
+env:
+  GCP_REGION: us-central1
+  ENV_NAME: dev
+  SUFFIX: -dev
+  MIN_INSTANCES: 0
+  MAX_INSTANCES: 1
+  MEMORY: 512Mi
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy (dev)
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - { name: ocx-trust-registry,    dir: trust-registry }
+          - { name: ocx-jury,             dir: jury }
+          - { name: ocx-ledger,           dir: ledger }
+          - { name: ocx-activity-registry, dir: activity-registry }
+          - { name: ocx-evidence-vault,    dir: evidence-vault }
+          - { name: ocx-authority,         dir: authority }
+          - { name: ocx-process-mining,    dir: process-mining }
+
+    env:
+      IMAGE_NAME: gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ matrix.service.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t $IMAGE_NAME:${{ github.sha }} \
+            -t $IMAGE_NAME:dev-latest \
+            -f ${{ matrix.service.dir }}/Dockerfile \
+            ${{ matrix.service.dir }}
+
+      - name: Push Docker image
+        run: |
+          docker push $IMAGE_NAME:${{ github.sha }}
+          docker push $IMAGE_NAME:dev-latest
+
+      - name: Deploy ${{ matrix.service.name }}
+        run: |
+          SERVICE_NAME="${{ matrix.service.name }}${{ env.SUFFIX }}"
+          echo "🚀 Deploying $SERVICE_NAME [dev]"
+
+          gcloud run deploy "$SERVICE_NAME" \
+            --image=$IMAGE_NAME:${{ github.sha }} \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ secrets.GCP_PROJECT_ID }} \
+            --platform=managed \
+            --no-allow-unauthenticated \
+            --ingress=internal-and-cloud-load-balancing \
+            --set-env-vars="SUPABASE_URL=${{ secrets.SUPABASE_URL }},SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }},POSTGRES_HOST=${{ secrets.POSTGRES_HOST }},POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }},POSTGRES_USER=${{ secrets.POSTGRES_USER }},POSTGRES_DB=${{ vars.POSTGRES_DB || 'postgres' }},POSTGRES_PORT=${{ vars.POSTGRES_PORT || '5432' }},DB_BACKEND=postgresql,OCX_ENV=dev" \
+            --memory=${{ env.MEMORY }} \
+            --cpu=1 \
+            --min-instances=${{ env.MIN_INSTANCES }} \
+            --max-instances=${{ env.MAX_INSTANCES }}
+
+      - name: Verify
+        run: |
+          SERVICE_NAME="${{ matrix.service.name }}${{ env.SUFFIX }}"
+          SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ secrets.GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+          echo "✅ $SERVICE_NAME: $SERVICE_URL"

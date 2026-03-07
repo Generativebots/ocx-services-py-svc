@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import psycopg2
+import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 from elasticsearch import Elasticsearch
 
@@ -28,19 +29,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database connection
+# Database Connection Pool (Enterprise: avoids TCP+auth per-request)
+_db_pool = None
+
+
+def _get_pool():
+    """Lazily initialize a ThreadedConnectionPool.
+    Enterprise pattern: reuses existing TCP connections (saves 5-50ms/call)."""
+    global _db_pool
+    if _db_pool is None:
+        _db_pool = psycopg2.pool.ThreadedConnectionPool(
+            minconn=2,
+            maxconn=int(os.getenv('DB_POOL_MAX', '20')),
+            host=os.getenv('DB_HOST', 'localhost'),
+            port=os.getenv('DB_PORT', '5432'),
+            database=os.getenv('DB_NAME', 'ocx'),
+            user=os.getenv('DB_USER', 'postgres'),
+            password=os.getenv('DB_PASSWORD', 'postgres'),
+        )
+    return _db_pool
+
+
 def get_db() -> None:
-    conn = psycopg2.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        port=os.getenv('DB_PORT', '5432'),
-        database=os.getenv('DB_NAME', 'ocx'),
-        user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', 'postgres')
-    )
+    """Yield a pooled connection. Returns to pool on completion."""
+    pool = _get_pool()
+    conn = pool.getconn()
     try:
         yield conn
     finally:
-        conn.close()
+        pool.putconn(conn)
 
 # Elasticsearch connection — T10 fix: Lazy init with health check
 _es_client = None
@@ -286,11 +303,11 @@ async def create_evidence(evidence: EvidenceCreate, conn = Depends(get_db)) -> N
     return EvidenceResponse(**result)
 
 @app.get("/api/v1/evidence/{evidence_id}", response_model=EvidenceResponse)
-async def get_evidence(evidence_id: str, conn = Depends(get_db)) -> Any:
-    """Get evidence by ID"""
+async def get_evidence(evidence_id: str, tenant_id: str, conn = Depends(get_db)) -> Any:
+    """Get evidence by ID (tenant-scoped)"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    cursor.execute("SELECT * FROM evidence WHERE evidence_id = %s", (evidence_id,))
+    cursor.execute("SELECT * FROM evidence WHERE evidence_id = %s AND tenant_id = %s", (evidence_id, tenant_id))
     result = cursor.fetchone()
     
     if not result:
@@ -300,7 +317,7 @@ async def get_evidence(evidence_id: str, conn = Depends(get_db)) -> Any:
 
 @app.get("/api/v1/evidence", response_model=List[EvidenceResponse])
 async def list_evidence(
-    tenant_id: Optional[str] = None,
+    tenant_id: str,
     activity_id: Optional[str] = None,
     execution_id: Optional[str] = None,
     agent_id: Optional[str] = None,
@@ -390,10 +407,11 @@ async def list_evidence(
 async def create_attestation(
     evidence_id: str,
     attestation: AttestationCreate,
+    tenant_id: str,
     conn = Depends(get_db)
 ) -> Any:
     """
-    Create trust attestation for evidence
+    Create trust attestation for evidence (tenant-scoped)
     
     Attestors:
     - JURY: Multi-agent consensus
@@ -403,8 +421,8 @@ async def create_attestation(
     """
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Verify evidence exists
-    cursor.execute("SELECT 1 FROM evidence WHERE evidence_id = %s", (evidence_id,))
+    # Verify evidence exists AND belongs to tenant
+    cursor.execute("SELECT 1 FROM evidence WHERE evidence_id = %s AND tenant_id = %s", (evidence_id, tenant_id))
     if not cursor.fetchone():
         raise HTTPException(status_code=404, detail="Evidence not found")
     
@@ -432,9 +450,14 @@ async def create_attestation(
     return AttestationResponse(**result)
 
 @app.get("/api/v1/evidence/{evidence_id}/attestations", response_model=List[AttestationResponse])
-async def get_attestations(evidence_id: str, conn = Depends(get_db)) -> list:
-    """Get all attestations for evidence"""
+async def get_attestations(evidence_id: str, tenant_id: str, conn = Depends(get_db)) -> list:
+    """Get all attestations for evidence (tenant-scoped)"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Verify evidence belongs to tenant before returning attestations
+    cursor.execute("SELECT 1 FROM evidence WHERE evidence_id = %s AND tenant_id = %s", (evidence_id, tenant_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Evidence not found")
     
     cursor.execute("""
         SELECT * FROM evidence_attestations
@@ -450,9 +473,9 @@ async def get_attestations(evidence_id: str, conn = Depends(get_db)) -> list:
 # ============================================================================
 
 @app.post("/api/v1/evidence/{evidence_id}/verify")
-async def verify_evidence(evidence_id: str, conn = Depends(get_db)) -> None:
+async def verify_evidence(evidence_id: str, tenant_id: str, conn = Depends(get_db)) -> None:
     """
-    Manually trigger evidence verification
+    Manually trigger evidence verification (tenant-scoped)
     
     Checks:
     1. Hash integrity
@@ -463,8 +486,8 @@ async def verify_evidence(evidence_id: str, conn = Depends(get_db)) -> None:
     """
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Get evidence
-    cursor.execute("SELECT * FROM evidence WHERE evidence_id = %s", (evidence_id,))
+    # Get evidence (tenant-scoped)
+    cursor.execute("SELECT * FROM evidence WHERE evidence_id = %s AND tenant_id = %s", (evidence_id, tenant_id))
     evidence = cursor.fetchone()
     
     if not evidence:
@@ -500,15 +523,21 @@ async def verify_evidence(evidence_id: str, conn = Depends(get_db)) -> None:
     }
 
 @app.get("/api/v1/evidence/{evidence_id}/chain")
-async def get_evidence_chain(evidence_id: str, conn = Depends(get_db)) -> dict:
-    """Get evidence chain for tamper detection"""
+async def get_evidence_chain(evidence_id: str, tenant_id: str, conn = Depends(get_db)) -> dict:
+    """Get evidence chain for tamper detection (tenant-scoped)"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Verify evidence belongs to tenant
+    cursor.execute("SELECT 1 FROM evidence WHERE evidence_id = %s AND tenant_id = %s", (evidence_id, tenant_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Evidence not found")
     
     cursor.execute("SELECT * FROM get_evidence_chain(%s)", (evidence_id,))
     chain = cursor.fetchall()
     
     return {
         "evidence_id": evidence_id,
+        "tenant_id": tenant_id,
         "chain_length": len(chain),
         "chain": chain
     }
@@ -590,20 +619,16 @@ async def generate_compliance_report(
 
 @app.get("/api/v1/compliance/reports")
 async def list_compliance_reports(
-    tenant_id: Optional[str] = None,
+    tenant_id: str,
     report_type: Optional[str] = None,
     limit: int = 100,
     conn = Depends(get_db)
 ) -> Any:
-    """List compliance reports"""
+    """List compliance reports (tenant-scoped)"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    query = "SELECT * FROM compliance_reports WHERE 1=1"
-    params = []
-    
-    if tenant_id:
-        query += " AND tenant_id = %s"
-        params.append(tenant_id)
+    query = "SELECT * FROM compliance_reports WHERE tenant_id = %s"
+    params = [tenant_id]
     
     if report_type:
         query += " AND report_type = %s"
@@ -621,12 +646,12 @@ async def list_compliance_reports(
 
 @app.get("/api/v1/evidence/stats")
 async def get_evidence_stats(
-    tenant_id: Optional[str] = None,
+    tenant_id: str,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     conn = Depends(get_db)
 ) -> Any:
-    """Get evidence statistics"""
+    """Get evidence statistics (tenant-scoped)"""
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     query = """
@@ -639,13 +664,9 @@ async def get_evidence_stats(
             COUNT(DISTINCT agent_id) as unique_agents,
             COUNT(DISTINCT policy_reference) as unique_policies
         FROM evidence
-        WHERE 1=1
+        WHERE tenant_id = %s
     """
-    params = []
-    
-    if tenant_id:
-        query += " AND tenant_id = %s"
-        params.append(tenant_id)
+    params = [tenant_id]
     
     if start_date:
         query += " AND created_at >= %s"
@@ -661,10 +682,10 @@ async def get_evidence_stats(
 @app.get("/api/v1/evidence/search")
 async def search_evidence(
     q: str,
-    tenant_id: Optional[str] = None,
+    tenant_id: str,
     limit: int = 100
 ) -> dict:
-    """Full-text search in Elasticsearch"""
+    """Full-text search in Elasticsearch (tenant-scoped)"""
     es = get_es()
     if es is None:
         raise HTTPException(
@@ -676,12 +697,10 @@ async def search_evidence(
             "bool": {
                 "must": [
                     {"multi_match": {"query": q, "fields": ["event_data", "decision", "outcome"]}}
-                ]
+                ],
+                "filter": [{"term": {"tenant_id": tenant_id}}]
             }
         }
-        
-        if tenant_id:
-            query["bool"]["filter"] = [{"term": {"tenant_id": tenant_id}}]
         
         results = es.search(
             index='evidence',
@@ -690,12 +709,12 @@ async def search_evidence(
         )
         
         return {
+            "tenant_id": tenant_id,
             "total": results['hits']['total']['value'],
             "results": [hit['_source'] for hit in results['hits']['hits']]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
-
 # ============================================================================
 # HEALTH CHECK
 # ============================================================================

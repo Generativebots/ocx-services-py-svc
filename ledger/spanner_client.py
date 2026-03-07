@@ -23,14 +23,19 @@ class ComplianceClient:
     - shadow_sops
     """
     
-    def __init__(self) -> None:
+    def __init__(self, tenant_id: str = None) -> None:
         """
         Initialize Supabase compliance client.
+        
+        Args:
+            tenant_id: Tenant UUID string (required for multi-tenant isolation)
         """
         from supabase import create_client
         
         url = os.getenv("SUPABASE_URL")
         key = os.getenv("SUPABASE_SERVICE_KEY")
+        
+        self.tenant_id = tenant_id
         
         if not url or not key:
             logger.warning("Supabase credentials not found - using in-memory mode")
@@ -168,6 +173,7 @@ class ComplianceClient:
         
         try:
             self.client.table('policy_adjustments').insert({
+                'tenant_id': self.tenant_id,
                 'adjustment_id': adjustment.get('adjustment_id'),
                 'policy_id': adjustment.get('policy_id'),
                 'previous_threshold': adjustment.get('previous_threshold'),
@@ -218,6 +224,7 @@ class ComplianceClient:
         
         try:
             self.client.table('shadow_sops').insert({
+                'tenant_id': self.tenant_id,
                 'sop_id': shadow_sop.get('sop_id'),
                 'source': shadow_sop.get('source'),
                 'channel': shadow_sop.get('channel'),

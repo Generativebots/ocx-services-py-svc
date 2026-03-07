@@ -179,6 +179,9 @@ class ShadowSOPRLHC:
         self.policies_proposed = 0
         self.policies_approved = 0
     
+    # NOTE: set_tenant_config() removed — was a thread-safety hazard.
+    # Tenant-specific thresholds are now passed as parameters per-request.
+
     async def record_correction(
         self,
         tenant_id: str,
@@ -195,8 +198,19 @@ class ShadowSOPRLHC:
         context: Optional[Dict[str, Any]] = None,
         reviewer_trust_score: float = 1.0,
         severity: str = "MEDIUM",
+        # Per-request tenant overrides (thread-safe, no shared state mutation)
+        pattern_similarity_threshold: Optional[float] = None,
+        min_corrections_for_pattern: Optional[int] = None,
+        policy_approval_threshold: Optional[float] = None,
     ) -> HumanCorrection:
-        """Record a human correction to agent behavior."""
+        """Record a human correction to agent behavior.
+        Tenant-specific thresholds are passed per-request to avoid
+        mutating shared singleton state (thread-safety fix)."""
+
+        # Use per-request overrides if provided, fall back to constructor defaults
+        similarity_thresh = pattern_similarity_threshold if pattern_similarity_threshold is not None else self.pattern_similarity_threshold
+        min_corr = min_corrections_for_pattern if min_corrections_for_pattern is not None else self.min_corrections_for_pattern
+        approval_thresh = policy_approval_threshold if policy_approval_threshold is not None else self.policy_approval_threshold
         
         correction_id = self._generate_id("corr", transaction_id, correction_type.value)
         
@@ -227,8 +241,8 @@ class ShadowSOPRLHC:
         
         self.total_corrections += 1
         
-        # Find similar corrections
-        similar = await self._find_similar_corrections(correction)
+        # Find similar corrections (using per-request threshold)
+        similar = await self._find_similar_corrections(correction, similarity_thresh)
         correction.similar_corrections = similar
         correction.recurrence_count = len(similar)
         
@@ -237,10 +251,10 @@ class ShadowSOPRLHC:
             f"(type={correction_type}, tool={tool_id}, similar={len(similar)})"
         )
         
-        # Check if we should generate a pattern
-        if len(similar) >= self.min_corrections_for_pattern - 1:
+        # Check if we should generate a pattern (using per-request threshold)
+        if len(similar) >= min_corr - 1:
             await self._generate_pattern_from_corrections(
-                [correction_id] + similar
+                [correction_id] + similar, approval_thresh, min_corr
             )
         
         return correction
@@ -248,7 +262,9 @@ class ShadowSOPRLHC:
     async def _find_similar_corrections(
         self,
         correction: HumanCorrection,
+        similarity_threshold: Optional[float] = None,
     ) -> List[str]:
+        thresh = similarity_threshold if similarity_threshold is not None else self.pattern_similarity_threshold
         """Find similar corrections based on tool, action, and context."""
         similar = []
         
@@ -265,7 +281,7 @@ class ShadowSOPRLHC:
             
             # Calculate similarity
             similarity = self._calculate_similarity(correction, other)
-            if similarity >= self.pattern_similarity_threshold:
+            if similarity >= thresh:
                 similar.append(corr_id)
         
         return similar
@@ -303,11 +319,15 @@ class ShadowSOPRLHC:
     async def _generate_pattern_from_corrections(
         self,
         correction_ids: List[str],
+        approval_threshold: Optional[float] = None,
+        min_corrections: Optional[int] = None,
     ) -> Optional[LearnedPattern]:
+        min_corr = min_corrections if min_corrections is not None else self.min_corrections_for_pattern
+        approval_thresh = approval_threshold if approval_threshold is not None else self.policy_approval_threshold
         """Generate a pattern from a cluster of similar corrections."""
         corrections = [self.corrections[cid] for cid in correction_ids if cid in self.corrections]
         
-        if len(corrections) < self.min_corrections_for_pattern:
+        if len(corrections) < min_corr:
             return None
         
         # Find common elements
@@ -353,7 +373,7 @@ class ShadowSOPRLHC:
         )
         
         # Check if we should propose a policy
-        if pattern.confidence >= self.policy_approval_threshold:
+        if pattern.confidence >= approval_thresh:
             await self._propose_policy_from_pattern(pattern)
         
         return pattern
@@ -577,16 +597,50 @@ class ShadowSOPRLHC:
 
 
 # ============================================================================
-# FASTAPI ROUTER
+# FASTAPI ROUTER (PostgreSQL-backed)
 # ============================================================================
 
-from fastapi import APIRouter, HTTPException
+import os
+import psycopg2
+import psycopg2.pool
+from psycopg2.extras import RealDictCursor
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 router = APIRouter()
 
-# Global RLHC instance
-_rlhc = ShadowSOPRLHC()
+
+# --- Database Connection Pool (Enterprise: avoids TCP+auth per-request) ---
+
+_db_pool = None
+
+
+def _get_pool():
+    """Lazily initialize a ThreadedConnectionPool.
+    Enterprise pattern: reuses existing TCP connections instead of
+    creating a new psycopg2.connect() per request (saves 5-50ms/call)."""
+    global _db_pool
+    if _db_pool is None:
+        _db_pool = psycopg2.pool.ThreadedConnectionPool(
+            minconn=2,
+            maxconn=int(os.getenv('DB_POOL_MAX', '20')),
+            host=os.getenv('DB_HOST', 'localhost'),
+            port=os.getenv('DB_PORT', '5432'),
+            database=os.getenv('DB_NAME', 'ocx'),
+            user=os.getenv('DB_USER', 'postgres'),
+            password=os.getenv('DB_PASSWORD', 'postgres'),
+        )
+    return _db_pool
+
+
+def get_db():
+    """Yield a pooled connection. Returns to pool on completion."""
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        yield conn
+    finally:
+        pool.putconn(conn)
 
 
 class RecordCorrectionRequest(BaseModel):
@@ -614,67 +668,249 @@ class PolicyRejectionRequest(BaseModel):
 
 
 @router.post("/corrections")
-async def record_correction(req: RecordCorrectionRequest) -> dict:
-    """Record a human correction to agent behavior."""
+async def record_correction(
+    req: RecordCorrectionRequest,
+    x_department: Optional[str] = Header(None),
+    conn=Depends(get_db),
+) -> dict:
+    """Record a human correction to agent behavior (DB-backed, tenant-scoped)."""
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
     try:
-        correction = await _rlhc.record_correction(
-            tenant_id=req.tenant_id,
-            agent_id=req.agent_id,
-            correction_type=CorrectionType(req.correction_type),
-            original_action=req.original_action,
-            corrected_action=req.corrected_action,
-            tool_id=req.tool_id,
-            transaction_id=req.transaction_id,
-            reviewer_id=req.reviewer_id,
-            reasoning=req.reasoning,
-            severity=req.severity,
-            context=req.context,
-        )
+        # Insert into hitl_decisions table
+        cursor.execute("""
+            INSERT INTO hitl_decisions (
+                tenant_id, reviewer_id, transaction_id, agent_id,
+                decision_type, original_verdict, modified_payload, reason
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            req.tenant_id,
+            req.reviewer_id,
+            req.transaction_id,
+            req.agent_id,
+            req.correction_type,
+            req.original_action,
+            json.dumps({
+                "corrected_action": req.corrected_action,
+                "tool_id": req.tool_id,
+                "severity": req.severity,
+                "context": req.context or {},
+            }),
+            req.reasoning,
+        ))
+
+        result = cursor.fetchone()
+
+        # Check for similar corrections (pattern detection)
+        cursor.execute("""
+            SELECT COUNT(*) as similar_count
+            FROM hitl_decisions
+            WHERE tenant_id = %s
+              AND decision_type = %s
+              AND agent_id = %s
+              AND created_at > NOW() - INTERVAL '30 days'
+        """, (req.tenant_id, req.correction_type, req.agent_id))
+
+        similar = cursor.fetchone()["similar_count"]
+
+        # Read tenant-specific min_corrections threshold from governance config
+        cursor.execute("""
+            SELECT COALESCE(
+                (SELECT (config_data->>'rlhc_min_corrections_for_pattern')::int
+                 FROM platform_config
+                 WHERE tenant_id = %s AND config_key = 'governance'),
+                3
+            ) AS min_corr
+        """, (req.tenant_id,))
+        min_corrections_row = cursor.fetchone()
+        min_corrections = min_corrections_row["min_corr"] if min_corrections_row else 3
+
+        # If pattern detected (tenant-configurable threshold), create cluster
+        if similar >= min_corrections:
+            pattern_type = "ALLOW_PATTERN" if "ALLOW" in req.correction_type else (
+                "BLOCK_PATTERN" if "BLOCK" in req.correction_type else "MODIFY_PATTERN"
+            )
+            cursor.execute("""
+                INSERT INTO rlhc_correction_clusters (
+                    tenant_id, cluster_name, pattern_type,
+                    trigger_conditions, correction_count,
+                    confidence_score, status, department
+                ) VALUES (%s, %s, %s, %s, %s, %s, 'DETECTED', %s)
+            """, (
+                req.tenant_id,
+                f"RLHC-{req.correction_type[:12]}-{req.agent_id[:8]}",
+                pattern_type,
+                json.dumps({
+                    "correction_type": req.correction_type,
+                    "agent_id": req.agent_id,
+                    "tool_id": req.tool_id,
+                }),
+                similar,
+                min(similar / 10.0, 1.0),
+                x_department,
+            ))
+
+        conn.commit()
+
         return {
-            "correction_id": correction.correction_id,
-            "similar_count": correction.recurrence_count,
+            "correction_id": str(result["id"]),
+            "tenant_id": req.tenant_id,
+            "similar_count": similar,
         }
+
     except Exception as e:
+        conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/policies/pending")
-async def get_pending_policies() -> list:
-    """Get policies pending human review."""
-    policies = _rlhc.get_pending_policies()
+async def get_pending_policies(
+    tenant_id: str,
+    department: Optional[str] = None,
+    x_department: Optional[str] = Header(None),
+    conn=Depends(get_db),
+) -> list:
+    """Get RLHC-detected patterns pending human review (DB-backed)."""
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    dept = department or x_department
+
+    if dept:
+        cursor.execute("""
+            SELECT * FROM rlhc_correction_clusters
+            WHERE tenant_id = %s AND status IN ('DETECTED', 'REVIEWED')
+              AND (department = %s OR department IS NULL)
+            ORDER BY last_seen DESC
+            LIMIT 200
+        """, (tenant_id, dept))
+    else:
+        cursor.execute("""
+            SELECT * FROM rlhc_correction_clusters
+            WHERE tenant_id = %s AND status IN ('DETECTED', 'REVIEWED')
+            ORDER BY last_seen DESC
+            LIMIT 200
+        """, (tenant_id,))
+
+    rows = cursor.fetchall()
     return [
         {
-            "policy_id": p.policy_id,
-            "name": p.name,
-            "description": p.description,
-            "policy_type": p.policy_type,
-            "conditions": p.conditions,
-            "source_corrections_count": p.source_corrections_count,
-            "proposed_at": p.proposed_at.isoformat(),
+            "policy_id": str(row["id"]),
+            "name": row["cluster_name"],
+            "description": f"Detected from {row['correction_count']} human corrections",
+            "policy_type": row["pattern_type"],
+            "conditions": row["trigger_conditions"] if isinstance(row["trigger_conditions"], dict) else json.loads(row["trigger_conditions"]),
+            "source_corrections_count": row["correction_count"],
+            "proposed_at": row["first_seen"].isoformat() if row["first_seen"] else None,
+            "confidence": row["confidence_score"],
+            "tenant_id": tenant_id,
         }
-        for p in policies
+        for row in rows
     ]
 
 
 @router.post("/policies/{policy_id}/approve")
-async def approve_policy(policy_id: str, req: PolicyApprovalRequest) -> Any:
-    """Approve a proposed policy."""
-    result = _rlhc.approve_policy(policy_id, req.reviewer_id, req.notes)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
+async def approve_policy(
+    policy_id: str,
+    req: PolicyApprovalRequest,
+    tenant_id: str,
+    conn=Depends(get_db),
+) -> Any:
+    """Approve a detected RLHC pattern (DB-backed)."""
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("""
+        UPDATE rlhc_correction_clusters
+        SET status = 'PROMOTED', last_seen = NOW()
+        WHERE id = %s AND tenant_id = %s AND status IN ('DETECTED', 'REVIEWED')
+        RETURNING *
+    """, (policy_id, tenant_id))
+
+    row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail="Pattern not found or already processed")
+
+    conn.commit()
+    return {
+        "success": True,
+        "policy_id": str(row["id"]),
+        "tenant_id": tenant_id,
+        "message": f"Pattern {row['cluster_name']} promoted to policy",
+    }
 
 
 @router.post("/policies/{policy_id}/reject")
-async def reject_policy(policy_id: str, req: PolicyRejectionRequest) -> Any:
-    """Reject a proposed policy."""
-    result = _rlhc.reject_policy(policy_id, req.reviewer_id, req.reason)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
+async def reject_policy(
+    policy_id: str,
+    req: PolicyRejectionRequest,
+    tenant_id: str,
+    conn=Depends(get_db),
+) -> Any:
+    """Reject a detected RLHC pattern (DB-backed)."""
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("""
+        UPDATE rlhc_correction_clusters
+        SET status = 'REJECTED', last_seen = NOW()
+        WHERE id = %s AND tenant_id = %s AND status IN ('DETECTED', 'REVIEWED')
+        RETURNING *
+    """, (policy_id, tenant_id))
+
+    row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail="Pattern not found or already processed")
+
+    conn.commit()
+    return {
+        "success": True,
+        "policy_id": str(row["id"]),
+        "tenant_id": tenant_id,
+        "message": f"Pattern {row['cluster_name']} rejected",
+    }
 
 
 @router.get("/stats")
-async def get_stats() -> Any:
-    """Get RLHC statistics."""
-    return _rlhc.get_stats()
+async def get_stats(
+    tenant_id: str,
+    conn=Depends(get_db),
+) -> Any:
+    """Get RLHC statistics from DB (tenant-scoped)."""
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    # Correction stats
+    cursor.execute("""
+        SELECT
+            COUNT(*) as total_corrections,
+            COUNT(*) FILTER (WHERE decision_type = 'ALLOW_OVERRIDE') as allow_overrides,
+            COUNT(*) FILTER (WHERE decision_type = 'BLOCK_OVERRIDE') as block_overrides,
+            COUNT(*) FILTER (WHERE decision_type = 'MODIFY_OUTPUT') as modify_outputs
+        FROM hitl_decisions
+        WHERE tenant_id = %s
+    """, (tenant_id,))
+    correction_stats = cursor.fetchone()
+
+    # Cluster/pattern stats
+    cursor.execute("""
+        SELECT
+            COUNT(*) as total_patterns,
+            COUNT(*) FILTER (WHERE status = 'DETECTED') as pending,
+            COUNT(*) FILTER (WHERE status = 'PROMOTED') as promoted,
+            COUNT(*) FILTER (WHERE status = 'REJECTED') as rejected
+        FROM rlhc_correction_clusters
+        WHERE tenant_id = %s
+    """, (tenant_id,))
+    pattern_stats = cursor.fetchone()
+
+    return {
+        "tenant_id": tenant_id,
+        "total_corrections": correction_stats["total_corrections"],
+        "corrections_by_type": {
+            "ALLOW_OVERRIDE": correction_stats["allow_overrides"],
+            "BLOCK_OVERRIDE": correction_stats["block_overrides"],
+            "MODIFY_OUTPUT": correction_stats["modify_outputs"],
+        },
+        "patterns_generated": pattern_stats["total_patterns"],
+        "policies_pending": pattern_stats["pending"],
+        "policies_approved": pattern_stats["promoted"],
+        "policies_rejected": pattern_stats["rejected"],
+    }
+

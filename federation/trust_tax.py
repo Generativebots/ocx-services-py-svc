@@ -55,6 +55,9 @@ class TrustTaxEngine:
             self.client = create_client(url, key)
             logger.info("Trust Tax Engine initialized with Supabase")
         
+        # Store tenant_id for all DB operations (required FK)
+        self.tenant_id = tenant_id
+        
         # Override base rate from governance config
         if tenant_id:
             try:
@@ -97,6 +100,7 @@ class TrustTaxEngine:
         now = datetime.utcnow().isoformat()
         
         transaction = {
+            'tenant_id': self.tenant_id,
             'transaction_id': transaction_id,
             'local_ocx': local_ocx,
             'remote_ocx': remote_ocx,
@@ -167,6 +171,7 @@ class TrustTaxEngine:
             bill_id = str(uuid.uuid4())
             self.client.table('trust_tax_monthly_bills').upsert(
                 {
+                    'tenant_id': self.tenant_id,
                     'bill_id': bill_id,
                     'ocx_instance_id': ocx_instance_id,
                     'billing_month': billing_month,

@@ -179,24 +179,25 @@ async def evaluate_intent(req: EvaluationRequest, request: Request = None) -> No
 # Note: /health route is already defined above at line 57
 
 @app.get("/ledger/recent")
-def get_ledger_recent() -> Any:
-    return ledger.get_recent_transactions()
+def get_ledger_recent(tenant_id: str) -> Any:
+    return ledger.get_recent_transactions(tenant_id)
 
 @app.get("/ledger/stats")
-def get_ledger_stats() -> Any:
-    return ledger.get_daily_stats()
+def get_ledger_stats(tenant_id: str) -> Any:
+    return ledger.get_daily_stats(tenant_id)
 
 @app.get("/ledger/health/{agent_id}")
-def check_agent_health(agent_id: str) -> Any:
-    return ledger.check_weekly_drift(agent_id)
+def check_agent_health(agent_id: str, tenant_id: str) -> Any:
+    return ledger.check_weekly_drift(agent_id, tenant_id)
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
 @app.get("/memory/vault")
-async def get_memory_vault() -> dict:
+async def get_memory_vault(tenant_id: str) -> dict:
     """
-    Reads the Memory Vault logs from the filesystem.
+    Reads the Memory Vault logs from the filesystem (tenant-scoped).
+    Only returns entries matching the given tenant_id.
     """
     vault_path = "../memory-engine/vault"
     logs = []
@@ -208,10 +209,13 @@ async def get_memory_vault() -> dict:
                     for line in f:
                         if line.strip():
                             try:
-                                logs.append(json.loads(line))
+                                entry = json.loads(line)
+                                # Only include entries belonging to this tenant
+                                if entry.get("tenant_id") == tenant_id:
+                                    logs.append(entry)
                             except Exception:
                                 pass
     
     # Sort by timestamp desc
     logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-    return {"logs": logs}
+    return {"logs": logs, "tenant_id": tenant_id}

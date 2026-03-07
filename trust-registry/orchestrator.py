@@ -60,6 +60,7 @@ def ocx_governance_orchestrator(
     if ledger:
         ledger.record({
             "agent_id": agent_id,
+            "tenant_id": agent_metadata.get("tenant_id", "unknown"),
             "action": action,
             "trust_score": trust_score,
             "status": status,
