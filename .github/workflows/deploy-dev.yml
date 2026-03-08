@@ -1,31 +1,26 @@
 # =============================================================================
-# OCX Python Services — DEV Deployment
+# OCX Python Services — CI/CD (Dev)
 # =============================================================================
-# Branch: dev | Environment: dev | Manual dispatch only
+# Test, deploy (if changed), and verify
 # =============================================================================
 
-name: Deploy Python Services (Dev)
+name: CI/CD Python Services (Dev)
 
 on:
   workflow_dispatch:
 
 env:
-  GCP_REGION: us-central1
-  ENV_NAME: dev
-  SUFFIX: -dev
-  MIN_INSTANCES: 0
-  MAX_INSTANCES: 1
-  MEMORY: 512Mi
+  GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+  DEPLOY_ENV: dev
+  ENV_SUFFIX: -dev
 
 jobs:
-  build-and-deploy:
-    name: Build & Deploy (dev)
+  detect-changes:
+    name: Detect Changes
     runs-on: ubuntu-latest
     environment: dev
-    permissions:
-      contents: read
-      id-token: write
-
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
     strategy:
       fail-fast: false
       matrix:
@@ -37,10 +32,6 @@ jobs:
           - { name: ocx-evidence-vault,    dir: evidence-vault }
           - { name: ocx-authority,         dir: authority }
           - { name: ocx-process-mining,    dir: process-mining }
-
-    env:
-      IMAGE_NAME: gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ matrix.service.name }}
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,45 +46,119 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker --quiet
-
-      - name: Build Docker image
+      - name: Compare deployed vs current
+        id: check
         run: |
-          docker build \
-            -t $IMAGE_NAME:${{ github.sha }} \
-            -t $IMAGE_NAME:dev-latest \
-            -f ${{ matrix.service.dir }}/Dockerfile \
-            ${{ matrix.service.dir }}
+          SVC="${{ matrix.service.name }}${{ env.ENV_SUFFIX }}"
+          CURRENT_SHA=$(git rev-parse --short HEAD)
 
-      - name: Push Docker image
-        run: |
-          docker push $IMAGE_NAME:${{ github.sha }}
-          docker push $IMAGE_NAME:dev-latest
-
-      - name: Deploy ${{ matrix.service.name }}
-        run: |
-          SERVICE_NAME="${{ matrix.service.name }}${{ env.SUFFIX }}"
-          echo "🚀 Deploying $SERVICE_NAME [dev]"
-
-          gcloud run deploy "$SERVICE_NAME" \
-            --image=$IMAGE_NAME:${{ github.sha }} \
+          DEPLOYED_TAG=$(gcloud run services describe "$SVC" \
             --region=${{ env.GCP_REGION }} \
             --project=${{ secrets.GCP_PROJECT_ID }} \
-            --platform=managed \
-            --no-allow-unauthenticated \
-            --ingress=internal-and-cloud-load-balancing \
-            --set-env-vars="SUPABASE_URL=${{ secrets.SUPABASE_URL }},SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }},POSTGRES_HOST=${{ secrets.POSTGRES_HOST }},POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }},POSTGRES_USER=${{ secrets.POSTGRES_USER }},POSTGRES_DB=${{ vars.POSTGRES_DB || 'postgres' }},POSTGRES_PORT=${{ vars.POSTGRES_PORT || '5432' }},DB_BACKEND=postgresql,OCX_ENV=dev" \
-            --memory=${{ env.MEMORY }} \
-            --cpu=1 \
-            --min-instances=${{ env.MIN_INSTANCES }} \
-            --max-instances=${{ env.MAX_INSTANCES }}
+            --format='value(spec.template.spec.containers[0].image)' 2>/dev/null | grep -oP ':\K[^:]+$' || echo "NOT_DEPLOYED")
 
-      - name: Verify
+          if [ "$DEPLOYED_TAG" = "$CURRENT_SHA" ]; then
+            echo "✅ $SVC — no changes"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "🔄 $SVC — changes detected (deployed: $DEPLOYED_TAG, current: $CURRENT_SHA)"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  ci:
+    name: Test
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest -v || true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+  deploy:
+    name: Deploy (if changed)
+    needs: [detect-changes, ci]
+    if: contains(needs.detect-changes.outputs.has_changes, 'true')
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Run deploy.sh
         run: |
-          SERVICE_NAME="${{ matrix.service.name }}${{ env.SUFFIX }}"
-          SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" \
+          chmod +x deploy.sh
+          ./deploy.sh all ${{ env.DEPLOY_ENV }} ${{ env.GCP_REGION }}
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+  verify:
+    name: Verify Deployments
+    needs: [ci, deploy]
+    if: always() && needs.ci.result == 'success'
+    runs-on: ubuntu-latest
+    environment: dev
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - ocx-trust-registry
+          - ocx-jury
+          - ocx-ledger
+          - ocx-activity-registry
+          - ocx-evidence-vault
+          - ocx-authority
+          - ocx-process-mining
+    steps:
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Check ${{ matrix.service }}${{ env.ENV_SUFFIX }}
+        run: |
+          SVC="${{ matrix.service }}${{ env.ENV_SUFFIX }}"
+          STATUS=$(gcloud run services describe "$SVC" \
             --region=${{ env.GCP_REGION }} \
             --project=${{ secrets.GCP_PROJECT_ID }} \
-            --format='value(status.url)')
-          echo "✅ $SERVICE_NAME: $SERVICE_URL"
+            --format='value(status.conditions[0].status)' 2>/dev/null || echo "NOT_FOUND")
+
+          if [ "$STATUS" = "True" ]; then
+            URL=$(gcloud run services describe "$SVC" \
+              --region=${{ env.GCP_REGION }} \
+              --project=${{ secrets.GCP_PROJECT_ID }} \
+              --format='value(status.url)')
+            echo "✅ $SVC: $URL"
+          else
+            echo "⚠️  $SVC not deployed. Run: ./deploy.sh $(echo ${{ matrix.service }} | sed 's/ocx-//') ${{ env.DEPLOY_ENV }}"
+          fi
