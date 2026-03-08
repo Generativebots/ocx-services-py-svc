@@ -94,7 +94,7 @@ deploy_service() {
         --platform=managed \
         --no-allow-unauthenticated \
         --ingress=$INGRESS \
-        --set-env-vars="SUPABASE_URL=$SUPABASE_URL,SUPABASE_SERVICE_KEY=$SUPABASE_SERVICE_KEY,PORT=$PORT,OCX_ENV=$DEPLOY_ENV" \
+        --set-env-vars="SUPABASE_URL=$SUPABASE_URL,SUPABASE_SERVICE_KEY=$SUPABASE_SERVICE_KEY,OCX_ENV=$DEPLOY_ENV" \
         --memory=$MEMORY \
         --cpu=$CPU \
         --min-instances=$MIN_INSTANCES \
