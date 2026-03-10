@@ -6,6 +6,7 @@ Tests all major functionality
 import requests
 import json
 from datetime import datetime
+from typing import Any
 
 BASE_URL = "http://localhost:8002"
 

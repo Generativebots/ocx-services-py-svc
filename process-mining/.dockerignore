@@ -1,0 +1,59 @@
+# =============================================================================
+# OCX Python Service — .dockerignore
+# =============================================================================
+
+# Version control
+.git
+.gitignore
+.github/
+
+# Environment files (secrets must NOT be baked into images)
+.env
+.env.*
+*.local
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test files
+test_*.py
+tests/
+*.test
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+LICENSE
+docs/
+
+# Docker compose files
+docker-compose*.yml
+
+# AI tooling
+.gemini/
+.agent/
+*.bak
+
+# Logs
+*.log
+logs/

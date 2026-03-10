@@ -97,3 +97,6 @@ Thumbs.db
 # AI tooling
 .gemini/
 .agent/
+
+# Docker compose local
+docker-compose.local.yml
