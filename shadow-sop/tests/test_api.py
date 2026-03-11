@@ -13,6 +13,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import unittest.mock as mock
 
+# --- Save originals so we can restore after api.py import ---
+_MOCKED_KEYS = [
+    "config", "config.governance_config",
+    "psycopg2", "psycopg2.pool", "psycopg2.extras",
+    "shadow_executor", "rlhc",
+]
+_saved_modules = {k: sys.modules.get(k) for k in _MOCKED_KEYS}
+
 # --- Mock heavyweight dependencies ---
 _fake_gov_mod = mock.MagicMock()
 _fake_gov_mod.get_tenant_governance_config = mock.MagicMock(return_value={})
@@ -47,6 +55,13 @@ _api_spec = importlib.util.spec_from_file_location("shadow_sop_api", _api_path)
 api_mod = importlib.util.module_from_spec(_api_spec)
 sys.modules["shadow_sop_api"] = api_mod
 _api_spec.loader.exec_module(api_mod)
+
+# --- Restore original modules so subsequent test files get real imports ---
+for _k, _v in _saved_modules.items():
+    if _v is None:
+        sys.modules.pop(_k, None)
+    else:
+        sys.modules[_k] = _v
 
 from fastapi.testclient import TestClient
 import pytest

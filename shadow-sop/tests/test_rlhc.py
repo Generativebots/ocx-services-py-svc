@@ -8,19 +8,26 @@ import asyncio
 # Allow importing shadow-sop modules
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-# --- Mock dependencies ---
+# --- Mock dependencies (scoped) ---
+# Save originals so we can restore after import to avoid polluting other tests
 import unittest.mock as mock
+
+_MOCKED_KEYS = [
+    "config", "config.governance_config",
+    "psycopg2", "psycopg2.pool", "psycopg2.extras",
+    "fastapi", "pydantic",
+]
+_saved_modules = {k: sys.modules.get(k) for k in _MOCKED_KEYS}
 
 _fake_gov_mod = mock.MagicMock()
 _fake_gov_mod.get_tenant_governance_config = mock.MagicMock(return_value={})
-sys.modules.setdefault("config", mock.MagicMock())
+sys.modules["config"] = sys.modules.get("config") or mock.MagicMock()
 sys.modules["config.governance_config"] = _fake_gov_mod
 sys.modules.setdefault("psycopg2", mock.MagicMock())
 sys.modules.setdefault("psycopg2.pool", mock.MagicMock())
 sys.modules.setdefault("psycopg2.extras", mock.MagicMock())
-sys.modules.setdefault("fastapi", mock.MagicMock())
 
-# We need fastapi stubs for import
+# We need fastapi stubs for rlhc.py import
 _fake_fastapi = mock.MagicMock()
 _fake_fastapi.APIRouter = mock.MagicMock(return_value=mock.MagicMock())
 _fake_fastapi.HTTPException = Exception
@@ -30,7 +37,7 @@ sys.modules["fastapi"] = _fake_fastapi
 
 _fake_pydantic = mock.MagicMock()
 _fake_pydantic.BaseModel = type("BaseModel", (), {})
-sys.modules.setdefault("pydantic", _fake_pydantic)
+sys.modules["pydantic"] = sys.modules.get("pydantic") or _fake_pydantic
 
 _rlhc_path = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -40,6 +47,13 @@ _spec = importlib.util.spec_from_file_location("shadow_sop_rlhc", _rlhc_path)
 rlhc_mod = importlib.util.module_from_spec(_spec)
 sys.modules["shadow_sop_rlhc"] = rlhc_mod
 _spec.loader.exec_module(rlhc_mod)
+
+# --- Restore original modules so other test files get real fastapi/pydantic ---
+for _k, _v in _saved_modules.items():
+    if _v is None:
+        sys.modules.pop(_k, None)
+    else:
+        sys.modules[_k] = _v
 
 ShadowSOPRLHC = rlhc_mod.ShadowSOPRLHC
 CorrectionType = rlhc_mod.CorrectionType

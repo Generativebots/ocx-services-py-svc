@@ -7,7 +7,7 @@ import pytest
 import sys
 import os
 import socket
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 # Stub requests before importing interceptor

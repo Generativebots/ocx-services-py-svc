@@ -1,0 +1,39 @@
+[project]
+name = "ocx-services"
+version = "0.1.0"
+description = "OCX Python Microservices — Monorepo"
+requires-python = ">=3.11"
+
+# NOTE: This is a monorepo — each service has its own sys.path.
+# Run tests PER SERVICE, not from root:
+#
+#   cd shadow-sop   && python3 -m pytest tests/ -q
+#   cd trust-registry && python3 -m pytest tests/ -q
+#   cd ape           && cd .. && python3 -m pytest ape/tests/ -q
+#   ... etc.
+#
+# Or run all services at once via the script:
+#   ./scripts/run_all_tests.sh
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "--tb=short -q"
+
+[tool.coverage.run]
+omit = [
+    "*/venv/*",
+    "*/__pycache__/*",
+    "*/tests/*",
+    "scripts/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "if __name__",
+    "def serve\\(",
+    "def get_db\\(",
+    "pragma: no cover",
+]
+show_missing = true
