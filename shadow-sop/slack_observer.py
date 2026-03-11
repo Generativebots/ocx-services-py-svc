@@ -20,19 +20,30 @@ class SlackShadowSOPObserver:
     Discovered rules require human approval before becoming official policies.
     """
     
-    def __init__(self, bot_token: str = None, app_token: str = None, llm_client=None) -> None:
+    def __init__(self, bot_token: str = None, app_token: str = None, llm_client=None, tenant_id: str = None) -> None:
         """
         Initialize Slack observer.
         
         Args:
             bot_token: Slack bot token (optional for testing)
-            app_token: Slack app token (optional for testing)
+            app_token: Slack app token (optional for testing)  
             llm_client: LLM client for extraction (optional)
+            tenant_id: Tenant ID for governance config loading
         """
         self.bot_token = bot_token
         self.app_token = app_token
         self.llm = llm_client
         self.discovered_sops = []
+        
+        # Shadow SOP confidence threshold — from tenant governance config
+        self.min_confidence = 0.70  # default
+        if tenant_id:
+            try:
+                from config.governance_config import get_tenant_governance_config
+                cfg = get_tenant_governance_config(tenant_id)
+                self.min_confidence = cfg.get("shadow_min_confidence", 0.70)
+            except (ImportError, Exception):
+                pass
         
         # Pattern detection for tribal knowledge
         self.patterns = [
@@ -88,7 +99,7 @@ class SlackShadowSOPObserver:
                 # Use LLM to extract structured policy
                 shadow_sop = self.extract_tribal_knowledge(text, channel, author)
                 
-                if shadow_sop and shadow_sop['confidence'] > 0.7:
+                if shadow_sop and shadow_sop['confidence'] > self.min_confidence:
                     self.store_shadow_sop(shadow_sop)
                     logger.info(f"Discovered shadow SOP: {shadow_sop['rule'][:50]}...")
     

@@ -6,11 +6,25 @@ Called by Go backend via gRPC: ClusterDecisions(decisions[]) -> PatternSuggestio
 
 import logging
 import hashlib
+import os
+import sys
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from collections import Counter
 
+# Allow importing trust-registry config regardless of cwd
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trust-registry"))
+
 logger = logging.getLogger("rlhc")
+
+
+def _load_governance_config(tenant_id: str = "") -> dict:
+    """Load tenant governance config with safe fallback."""
+    try:
+        from config.governance_config import get_tenant_governance_config
+        return get_tenant_governance_config(tenant_id)
+    except Exception:
+        return {}
 
 
 @dataclass
@@ -51,6 +65,7 @@ def cluster_decisions(
     analysis_id: str = "rlhc-auto",
     min_frequency: int = 2,
     min_confidence: float = 0.6,
+    tenant_id: str = "",
 ) -> AnalysisResult:
     """
     Cluster HITL decisions into patterns suggesting new policies.
@@ -69,6 +84,11 @@ def cluster_decisions(
     Returns:
         AnalysisResult with pattern suggestions
     """
+    # Load thresholds from tenant governance config
+    cfg = _load_governance_config(tenant_id)
+    low_trust_cutoff = cfg.get("escrow_probation_threshold", 0.60)
+    auto_apply_threshold = cfg.get("escrow_sovereign_threshold", 0.90)
+
     result = AnalysisResult(analysis_id=analysis_id, total_decisions=len(decisions))
 
     if not decisions:
@@ -96,24 +116,24 @@ def cluster_decisions(
             suggested_rule={
                 "condition": f"original_verdict == '{orig}'",
                 "action": override.replace("_OVERRIDE", "").replace("_OUTPUT", ""),
-                "auto_apply": confidence > 0.9,
+                "auto_apply": confidence > auto_apply_threshold,
             },
             source_decisions=[d.decision_id for d in group],
         )
         result.patterns.append(pattern)
 
     # --- Cluster 2: Low trust overrides ---
-    low_trust_overrides = [d for d in decisions if d.trust_score < 0.6 and "BLOCK" in d.override_action]
+    low_trust_overrides = [d for d in decisions if d.trust_score < low_trust_cutoff and "BLOCK" in d.override_action]
     if len(low_trust_overrides) >= min_frequency:
         confidence = len(low_trust_overrides) / len(decisions)
         if confidence >= min_confidence:
             result.patterns.append(PatternSuggestion(
                 pattern_id="pat-low-trust-block",
-                description=f"Agents with trust < 0.6 frequently blocked ({len(low_trust_overrides)} times)",
+                description=f"Agents with trust < {low_trust_cutoff} frequently blocked ({len(low_trust_overrides)} times)",
                 frequency=len(low_trust_overrides),
                 confidence=round(confidence, 3),
                 suggested_rule={
-                    "condition": "trust_score < 0.6",
+                    "condition": f"trust_score < {low_trust_cutoff}",
                     "action": "BLOCK",
                     "auto_apply": False,
                 },

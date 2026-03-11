@@ -1,6 +1,7 @@
 from typing import Dict, Any
 from correction_agent import CorrectionAgent
 from jury import Jury
+from config.governance_config import get_tenant_governance_config
 import logging
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,11 @@ class A2ANegotiatorArbitrator:
         }
 
         # 2. THE SELF-HEALING TRIGGER
-        if verdict["final_trust_score"] < 0.70:
+        # Threshold from tenant governance config
+        tenant_id = buyer_payload.get("tenant_id", seller_payload.get("tenant_id", "default"))
+        cfg = get_tenant_governance_config(tenant_id)
+        risk_threshold = cfg.get("negotiation_risk_threshold", 0.70)
+        if verdict["final_trust_score"] < risk_threshold:
             print(f"🤝 [Arbitrator] Negotiation Risk ({trust_score}). Triggering Healer.")
             
             remediation = self.corrector.generate_directive(

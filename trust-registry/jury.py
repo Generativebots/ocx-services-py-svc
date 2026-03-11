@@ -11,6 +11,13 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# Governance config loader — tenant-specific overrides
+try:
+    from config.governance_config import get_tenant_governance_config
+    _HAS_GOV_CONFIG = True
+except ImportError:
+    _HAS_GOV_CONFIG = False
+
 
 class Jury:
     """Multi-model consensus jury for evaluating agent trustworthiness."""
@@ -22,10 +29,24 @@ class Jury:
         "low": ["read", "list", "get", "query", "view", "check"],
     }
 
-    def __init__(self, llm_client=None) -> None:
+    def __init__(self, llm_client=None, tenant_id: str = None) -> None:
         self.model = os.getenv("JURY_MODEL", "default-consensus")
         self.llm_client = llm_client
-        logger.info("Jury initialized (model=%s)", self.model)
+        self.tenant_id = tenant_id
+
+        # Load tenant-specific thresholds (fall back to defaults)
+        if tenant_id and _HAS_GOV_CONFIG:
+            cfg = get_tenant_governance_config(tenant_id)
+            self.trust_threshold = cfg.get("jury_trust_threshold", 0.65)
+            self.kill_switch_threshold = cfg.get("kill_switch_threshold", 0.30)
+        else:
+            self.trust_threshold = 0.65
+            self.kill_switch_threshold = 0.30
+
+        logger.info(
+            "Jury initialized (model=%s, trust_threshold=%.2f, kill_switch=%.2f)",
+            self.model, self.trust_threshold, self.kill_switch_threshold,
+        )
 
     def _compute_compliance_score(self, action: str, rules_context: str) -> float:
         """Compute compliance score based on action risk and rules context."""
@@ -130,16 +151,23 @@ class Jury:
             "strategic_alignment": round(strategic_score, 4),
         }
 
-        status = "APPROVED" if trust_score >= 0.5 else "BLOCKED"
+        # Resolve threshold — prefer tenant-specific config loaded at init,
+        # but if tenant_id wasn't known at init, load now.
+        threshold = self.trust_threshold
+        if tenant_id and tenant_id != "unknown" and _HAS_GOV_CONFIG and not self.tenant_id:
+            cfg = get_tenant_governance_config(tenant_id)
+            threshold = cfg.get("jury_trust_threshold", 0.65)
+
+        status = "APPROVED" if trust_score >= threshold else "BLOCKED"
 
         reasoning = (
             f"Agent {agent_id} (tenant={tenant_id}) scored {trust_score:.2f} "
-            f"for action '{action}'"
+            f"(threshold={threshold:.2f}) for action '{action}'"
         )
 
         logger.info(
-            "Jury verdict: agent=%s tenant=%s score=%.4f status=%s",
-            agent_id, tenant_id, trust_score, status,
+            "Jury verdict: agent=%s tenant=%s score=%.4f threshold=%.2f status=%s",
+            agent_id, tenant_id, trust_score, threshold, status,
         )
 
         return {

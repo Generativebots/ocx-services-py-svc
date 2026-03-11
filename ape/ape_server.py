@@ -21,8 +21,19 @@ from concurrent import futures
 from dataclasses import asdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Allow importing trust-registry config
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trust-registry"))
 
 from ape.ape_service import extract_policies, compute_extraction_hash
+
+
+def _load_governance_config(tenant_id: str = "") -> dict:
+    """Load tenant governance config with safe fallback."""
+    try:
+        from config.governance_config import get_tenant_governance_config
+        return get_tenant_governance_config(tenant_id)
+    except Exception:
+        return {}
 
 logger = logging.getLogger(__name__)
 
@@ -90,16 +101,23 @@ class APEServiceImpl:
         """Detect drift between current and expected policies."""
         logger.info("DetectDrift: policy=%s tenant=%s", request.policy_id, request.tenant_id)
 
+        # Load drift thresholds from tenant governance config
+        cfg = _load_governance_config(getattr(request, 'tenant_id', ''))
+        drift_warn = cfg.get("anomaly_score_warning", 0.50)
+        drift_critical = cfg.get("anomaly_score_critical", 0.70)
+        drift_severe = cfg.get("escrow_sovereign_threshold", 0.90)
+        auto_correct_limit = cfg.get("anomaly_score_critical", 0.70) + 0.10  # slightly above critical
+
         # Deterministic drift detection based on policy ID hash
         h = int(hashlib.md5(request.policy_id.encode()).hexdigest()[:8], 16)
         drift_score = (h % 100) / 100.0
 
         suggestions = []
-        if drift_score > 0.5:
+        if drift_score > drift_warn:
             suggestions.append(f"Update rule conditions for policy {request.policy_id}")
-        if drift_score > 0.7:
+        if drift_score > drift_critical:
             suggestions.append("Consider adding new threshold rules based on recent patterns")
-        if drift_score > 0.9:
+        if drift_score > drift_severe:
             suggestions.append("Critical: Policy is significantly outdated, full review recommended")
 
         return {
@@ -107,7 +125,7 @@ class APEServiceImpl:
             "policy_id": request.policy_id,
             "drift_score": drift_score,
             "suggestions": suggestions,
-            "auto_correctable": drift_score < 0.8,
+            "auto_correctable": drift_score < auto_correct_limit,
         }
 
     def ApplyCorrection(self, request, context):

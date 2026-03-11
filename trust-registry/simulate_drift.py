@@ -22,13 +22,13 @@ def verify_drift() -> None:
     
     # 2. Insert "Last Week" Data (High Scores - Avg 0.95)
     # 10 days ago
-    t_last = (datetime.datetime.now() - datetime.timedelta(days=10)).isoformat()
+    t_last = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=10)).isoformat()
     insert_txn(t_last, 0.95)
     insert_txn(t_last, 0.96)
     
     # 3. Insert "This Week" Data (Low Scores - Avg 0.70)
     # 2 days ago
-    t_now = (datetime.datetime.now() - datetime.timedelta(days=2)).isoformat()
+    t_now = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=2)).isoformat()
     insert_txn(t_now, 0.70)
     insert_txn(t_now, 0.71)
     

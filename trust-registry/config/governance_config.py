@@ -95,6 +95,20 @@ DEFAULT_GOVERNANCE_CONFIG: Dict[str, Any] = {
     # AOCS — Ghost-Turn / Escrow
     "aocs_escrow_timeout_seconds": 300,
     "aocs_speculative_enabled": True,
+
+    # Escrow Tier Thresholds
+    "escrow_sovereign_threshold": 0.90,
+    "escrow_trusted_threshold": 0.75,
+    "escrow_probation_threshold": 0.60,
+
+    # Negotiation & Anomaly
+    "negotiation_risk_threshold": 0.70,
+    "anomaly_score_critical": 0.70,
+    "anomaly_score_warning": 0.60,
+
+    # Audit Cost
+    "audit_cost_high_threshold": 0.80,
+    "audit_cost_critical_threshold": 0.70,
 }
 
 

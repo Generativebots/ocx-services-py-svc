@@ -115,6 +115,11 @@ class ReputationServiceImpl(ReputationServiceServicer):
         self._scores: Dict[str, float] = {}
         self._balances: Dict[str, float] = {}  # micro-payment balance per agent
 
+        # Default tier thresholds — overridden per tenant via governance config
+        self._sovereign_threshold = 0.85
+        self._trusted_threshold = 0.65
+        self._probation_threshold = 0.40
+
     def GetTrustScore(self, request: TrustRequest, context) -> TrustScore:
         """
         Return the current trust score and tier for an agent.
@@ -128,11 +133,21 @@ class ReputationServiceImpl(ReputationServiceServicer):
         agent_key = f"{request.tenant_id}:{request.agent_id}"
         score = self._scores.get(agent_key, 0.50)  # default 0.50 for new agents
 
-        if score >= 0.85:
+        # Load tenant-specific tier thresholds from governance config
+        try:
+            from config.governance_config import get_tenant_governance_config
+            cfg = get_tenant_governance_config(request.tenant_id)
+            sov = cfg.get("escrow_sovereign_threshold", self._sovereign_threshold)
+            tru = cfg.get("escrow_trusted_threshold", self._trusted_threshold)
+            pro = cfg.get("escrow_probation_threshold", self._probation_threshold)
+        except (ImportError, Exception):
+            sov, tru, pro = self._sovereign_threshold, self._trusted_threshold, self._probation_threshold
+
+        if score >= sov:
             tier = "SOVEREIGN"
-        elif score >= 0.65:
+        elif score >= tru:
             tier = "TRUSTED"
-        elif score >= 0.40:
+        elif score >= pro:
             tier = "PROBATION"
         else:
             tier = "QUARANTINED"

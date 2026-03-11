@@ -8,7 +8,7 @@ Each trace is a sequence of activities performed by agents.
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger("process-miner")
@@ -99,7 +99,7 @@ class ProcessMiner:
                     name=event.get("activity", event.get("action", "unknown")),
                     agent_id=event.get("agent_id", ""),
                     timestamp=datetime.fromisoformat(
-                        event.get("timestamp", datetime.now().isoformat())
+                        event.get("timestamp", datetime.now(timezone.utc).isoformat())
                     ),
                     duration_ms=event.get("duration_ms", 0.0),
                     metadata=event.get("metadata", {}),

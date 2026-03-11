@@ -22,6 +22,11 @@ from scipy import stats
 import logging
 
 import os
+import sys
+from datetime import timezone
+
+# Allow importing trust-registry config regardless of cwd
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trust-registry"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,6 +34,15 @@ logger = logging.getLogger(__name__)
 # Configuration — from environment variables
 EVIDENCE_VAULT_URL = os.getenv("EVIDENCE_VAULT_URL", "http://localhost:8003")
 ACTIVITY_REGISTRY_URL = os.getenv("ACTIVITY_REGISTRY_URL", "http://localhost:8002")
+
+
+def _load_governance_config(tenant_id: str = "") -> dict:
+    """Load tenant governance config with safe fallback."""
+    try:
+        from config.governance_config import get_tenant_governance_config
+        return get_tenant_governance_config(tenant_id)
+    except Exception:
+        return {}
 
 class AttestationStatus(str, Enum):
     APPROVED = "APPROVED"
@@ -62,13 +76,15 @@ class JuryVerifier:
     Consensus threshold determines approval
     """
     
-    def __init__(self, num_agents: int = None, consensus_threshold: float = None) -> None:
-        # Server-level defaults — per-tenant overrides loaded at request time
+    def __init__(self, num_agents: int = None, consensus_threshold: float = None, tenant_id: str = "") -> None:
+        # Load thresholds from governance config
+        cfg = _load_governance_config(tenant_id)
         self.num_agents = num_agents if num_agents is not None else 10
         self.consensus_threshold = (
             consensus_threshold if consensus_threshold is not None
-            else 0.75
+            else cfg.get("quorum_threshold", 0.75)
         )
+        self.vote_threshold = cfg.get("jury_trust_threshold", 0.70)
         self.agent_ids = [f"jury-agent-{i}" for i in range(self.num_agents)]
     
     async def verify_evidence(self, evidence: EvidenceRecord) -> Dict[str, Any]:
@@ -133,7 +149,7 @@ class JuryVerifier:
         # Simple validation logic (in production, use sophisticated AI)
         score = self._calculate_validity_score(evidence)
         
-        vote = "APPROVE" if score > 0.7 else "REJECT"
+        vote = "APPROVE" if score > self.vote_threshold else "REJECT"
         
         return {
             "agent_id": agent_id,
@@ -190,10 +206,13 @@ class EntropyVerifier:
     - Randomness quality
     """
     
-    def __init__(self) -> None:
-        # Server-level default — per-tenant overrides loaded at request time
+    def __init__(self, tenant_id: str = "") -> None:
+        # Load thresholds from governance config
+        cfg = _load_governance_config(tenant_id)
         self.history_window = 100
         self.decision_history = []
+        self.confidence_high = cfg.get("anomaly_score_critical", 0.80)
+        self.confidence_low = cfg.get("kill_switch_threshold", 0.50)
     
     async def verify_evidence(self, evidence: EvidenceRecord) -> Dict[str, Any]:
         """
@@ -223,10 +242,10 @@ class EntropyVerifier:
         confidence = (entropy_score + (1 - bias_score) + (1 - anomaly_score)) / 3
         
         # Determine status
-        if confidence > 0.8:
+        if confidence > self.confidence_high:
             status = AttestationStatus.APPROVED
             reasoning = f"High entropy ({entropy_score:.2f}), low bias ({bias_score:.2f})"
-        elif confidence < 0.5:
+        elif confidence < self.confidence_low:
             status = AttestationStatus.REJECTED
             reasoning = f"Low entropy or high bias detected"
         else:

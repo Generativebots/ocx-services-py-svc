@@ -115,7 +115,7 @@ class Registry:
             "logic_json": logic_json, # JSONB
             "priority": priority,
             "status": status,
-            "created_at": datetime.datetime.now().isoformat()
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }
         
         if self.supabase:

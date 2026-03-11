@@ -12,7 +12,7 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 from reportlab.graphics.shapes import Drawing
 from reportlab.graphics.charts.linecharts import HorizontalLineChart
 from reportlab.graphics.charts.barcharts import VerticalBarChart
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 import io
 import logging
@@ -143,7 +143,7 @@ class BusinessCaseReportGenerator:
         
         # Date
         date_text = Paragraph(
-            f"Generated: {datetime.now().strftime('%B %d, %Y')}",
+            f"Generated: {datetime.now(timezone.utc).strftime('%B %d, %Y')}",
             self.styles['Normal']
         )
         elements.append(date_text)

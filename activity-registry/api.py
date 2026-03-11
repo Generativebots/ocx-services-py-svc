@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Any
 from enum import Enum
 import os
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import json
@@ -535,7 +535,7 @@ async def deploy_activity(
         )
     
     # Create deployment
-    effective_from = deployment.effective_from or datetime.now()
+    effective_from = deployment.effective_from or datetime.now(timezone.utc)
     
     cursor.execute("""
         INSERT INTO activity_deployments (

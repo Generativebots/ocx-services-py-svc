@@ -6,6 +6,7 @@ Ledger recording, and Kill-Switch evaluation.
 """
 import logging
 from typing import Dict, Any
+from config.governance_config import get_tenant_governance_config
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +47,18 @@ def ocx_governance_orchestrator(
     status = jury_result["status"]
     reasoning = jury_result["reasoning"]
 
-    # Step 2: Kill-Switch Check (score below 0.3 = block)
-    if trust_score < 0.3:
+    # Step 2: Kill-Switch Check (tenant-configurable threshold)
+    tenant_id = agent_metadata.get("tenant_id", "unknown")
+    cfg = get_tenant_governance_config(tenant_id)
+    kill_switch = cfg.get("kill_switch_threshold", 0.3)
+    if trust_score < kill_switch:
         status = "BLOCKED"
-        reasoning += " | KILL-SWITCH TRIGGERED: Score below safety threshold."
+        reasoning += f" | KILL-SWITCH TRIGGERED: Score below safety threshold ({kill_switch})."
         logger.warning(
-            "🛑 Kill-switch triggered for agent %s (score=%.2f)",
+            "🛑 Kill-switch triggered for agent %s (score=%.2f, threshold=%.2f)",
             agent_id,
             trust_score,
+            kill_switch,
         )
 
     # Step 3: Record to Ledger

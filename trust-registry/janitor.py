@@ -15,15 +15,24 @@ logger = logging.getLogger(__name__)
 GO_ADMIN_URL = os.getenv("GO_ADMIN_URL", "http://localhost:8080/admin/policy")
 DB_PATH = "ledger.db"
 
-def monitor_ledger_loop() -> None:
+
+def monitor_ledger_loop(tenant_id: str = "default") -> None:
+    # Load threshold from governance config
+    try:
+        from config.governance_config import get_tenant_governance_config
+        cfg = get_tenant_governance_config(tenant_id)
+        score_threshold = cfg.get("kill_switch_threshold", 0.40)
+    except (ImportError, Exception):
+        score_threshold = 0.40
+
     print("🧹 [Janitor] Starting Autonomous Reputation Monitor...")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     while True:
         try:
-            # 1. Check for "Problematic Agents" (Avg Score < 40 in last 5 txns)
-            cursor.execute("""
+            # 1. Check for "Problematic Agents" (Avg Score < threshold)
+            cursor.execute(f"""
                 SELECT agent_id, AVG(score) as avg_score 
                 FROM (
                     SELECT agent_id, score 
@@ -32,7 +41,7 @@ def monitor_ledger_loop() -> None:
                     LIMIT 20
                 ) 
                 GROUP BY agent_id 
-                HAVING avg_score < 0.40
+                HAVING avg_score < {score_threshold}
             """)
             
             bad_actors = cursor.fetchall()

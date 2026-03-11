@@ -16,7 +16,7 @@ import logging
 import hashlib
 import json
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import httpx
 import os
 
@@ -152,6 +152,10 @@ class CognitiveAuditor:
         self.unanimous_required = unanimous_required
         self.quorum_threshold = quorum_threshold
         
+        # Anomaly score thresholds — from tenant governance config
+        self.anomaly_score_critical = 0.70
+        self.anomaly_score_warning = 0.60
+        
         # Override from governance config if tenant_id provided
         if tenant_id:
             try:
@@ -159,8 +163,11 @@ class CognitiveAuditor:
                 cfg = get_tenant_governance_config(tenant_id)
                 self.trust_threshold = cfg.get("jury_trust_threshold", trust_threshold)
                 self.quorum_threshold = cfg.get("quorum_threshold", quorum_threshold)
+                self.anomaly_score_critical = cfg.get("anomaly_score_critical", 0.70)
+                self.anomaly_score_warning = cfg.get("anomaly_score_warning", 0.60)
                 logger.info(f"CognitiveAuditor configured from tenant governance: "
-                           f"trust_threshold={self.trust_threshold}, quorum={self.quorum_threshold}")
+                           f"trust_threshold={self.trust_threshold}, quorum={self.quorum_threshold}, "
+                           f"anomaly_critical={self.anomaly_score_critical}, anomaly_warning={self.anomaly_score_warning}")
             except ImportError:
                 pass
         
@@ -184,7 +191,7 @@ class CognitiveAuditor:
         
         This is called by the Tri-Factor Gate for CLASS_B actions.
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
         
         # Step 0: Prompt Injection Scan (two-layer: keyword + ML)
         # Runs BEFORE expensive intent extraction / jury / APE pipeline.
@@ -193,7 +200,7 @@ class CognitiveAuditor:
         injection_result = await injection_classifier.classify(payload_text)
         
         if injection_result.is_injection:
-            duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+            duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
             logger.warning(
                 f"INJECTION BLOCKED: tx={transaction_id}, agent={agent_id}, "
                 f"type={injection_result.attack_type}, layer={injection_result.layer}, "
@@ -258,7 +265,7 @@ class CognitiveAuditor:
         )
         
         # Calculate duration
-        duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+        duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
         
         result = CognitiveAuditResult(
             transaction_id=transaction_id,
@@ -480,7 +487,7 @@ class CognitiveAuditor:
                 typical_resources=["database_table", "document_store"],
                 typical_time_windows=["09:00-17:00"],
                 trust_score_history=[0.75, 0.78, 0.80],
-                last_updated=datetime.now(),
+                last_updated=datetime.now(timezone.utc),
             )
         return self.baselines.get(agent_id)
     
@@ -499,7 +506,7 @@ class CognitiveAuditor:
             return False, AnomalyType.NONE, 0.0
         
         # Track request velocity
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         if agent_id not in self.request_history:
             self.request_history[agent_id] = []
         
@@ -593,7 +600,7 @@ class CognitiveAuditor:
                 confidence = 0.95
                 reasoning = f"Policy violations detected: {[v.rule_name for v in violations]}"
             elif intent.risk_category == "FINANCIAL" and intent.extracted_entities.get("amount", 0) > 5000:
-                vote = "APPROVE" if trust_score > 0.85 else "ABSTAIN"
+                vote = "APPROVE" if trust_score > self.trust_threshold else "ABSTAIN"
                 confidence = 0.7
                 reasoning = f"High-value transaction requires elevated trust"
             else:
@@ -661,7 +668,7 @@ class CognitiveAuditor:
             )
         
         # Any violations with high anomaly = BLOCK
-        if violations and anomaly_detected and anomaly_score > 0.7:
+        if violations and anomaly_detected and anomaly_score > self.anomaly_score_critical:
             return (
                 CognitiveVerdict.BLOCK,
                 0.2,
@@ -678,7 +685,7 @@ class CognitiveAuditor:
             )
         
         # High anomaly score = HOLD
-        if anomaly_detected and anomaly_score > 0.6:
+        if anomaly_detected and anomaly_score > self.anomaly_score_warning:
             return (
                 CognitiveVerdict.HOLD,
                 0.5,
@@ -739,7 +746,7 @@ class CognitiveAuditor:
             baseline.trust_score_history.append(trust_score)
             baseline.trust_score_history = baseline.trust_score_history[-20:]
             
-            baseline.last_updated = datetime.now()
+            baseline.last_updated = datetime.now(timezone.utc)
 
 
 # FastAPI Router for Cognitive Auditor

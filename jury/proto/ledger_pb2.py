@@ -10,7 +10,7 @@ Mirrors the proto messages exactly:
 Replace with real protoc output when proto toolchain is available.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class LedgerEntry:
         self.intent_hash = intent_hash
         self.actual_hash = actual_hash
         self.actions_taken = actions_taken or []
-        self.timestamp = timestamp or datetime.utcnow()
+        self.timestamp = timestamp or datetime.now(timezone.utc)
 
     def SerializeToString(self) -> bytes:
         import json

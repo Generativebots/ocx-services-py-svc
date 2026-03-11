@@ -11,9 +11,14 @@ base classes from proto/escrow_pb2_grpc.py with real escrow logic:
 
 import hashlib
 import logging
+import os
+import sys
 import time
 import uuid
 from typing import Dict
+
+# Allow importing trust-registry config regardless of cwd
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trust-registry"))
 
 import grpc
 
@@ -115,24 +120,34 @@ class ReputationServiceImpl(ReputationServiceServicer):
         self._scores: Dict[str, float] = {}
         self._balances: Dict[str, float] = {}  # micro-payment balance per agent
 
+    def _load_tier_thresholds(self, tenant_id: str) -> dict:
+        """Load escrow tier thresholds from tenant governance config."""
+        try:
+            from config.governance_config import get_tenant_governance_config
+            cfg = get_tenant_governance_config(tenant_id)
+        except Exception:
+            cfg = {}
+        return {
+            "sovereign": cfg.get("escrow_sovereign_threshold", 0.85),
+            "trusted":   cfg.get("escrow_trusted_threshold", 0.65),
+            "probation":  cfg.get("escrow_probation_threshold", 0.40),
+        }
+
     def GetTrustScore(self, request: TrustRequest, context) -> TrustScore:
         """
         Return the current trust score and tier for an agent.
-        
-        Tier mapping:
-          - score >= 0.85 → "SOVEREIGN"
-          - score >= 0.65 → "TRUSTED"
-          - score >= 0.40 → "PROBATION"
-          - below 0.40    → "QUARANTINED"
+
+        Tier thresholds loaded from tenant_governance_config.
         """
         agent_key = f"{request.tenant_id}:{request.agent_id}"
         score = self._scores.get(agent_key, 0.50)  # default 0.50 for new agents
 
-        if score >= 0.85:
+        tiers = self._load_tier_thresholds(getattr(request, 'tenant_id', ''))
+        if score >= tiers["sovereign"]:
             tier = "SOVEREIGN"
-        elif score >= 0.65:
+        elif score >= tiers["trusted"]:
             tier = "TRUSTED"
-        elif score >= 0.40:
+        elif score >= tiers["probation"]:
             tier = "PROBATION"
         else:
             tier = "QUARANTINED"

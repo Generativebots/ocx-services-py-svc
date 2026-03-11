@@ -95,6 +95,7 @@ class TrustCalculationEngine:
             self.weight_history = cfg.get("jury_history_weight", WEIGHT_HISTORY)
             self.trust_threshold = cfg.get("jury_trust_threshold", TRUST_THRESHOLD)
             self.trust_tax_rate = cfg.get("trust_tax_base_rate", TRUST_TAX_RATE)
+            self.kill_switch_threshold = cfg.get("kill_switch_threshold", 0.30)
         else:
             self.weight_audit = WEIGHT_AUDIT
             self.weight_reputation = WEIGHT_REPUTATION
@@ -102,6 +103,7 @@ class TrustCalculationEngine:
             self.weight_history = WEIGHT_HISTORY
             self.trust_threshold = TRUST_THRESHOLD
             self.trust_tax_rate = TRUST_TAX_RATE
+            self.kill_switch_threshold = 0.30
     async def calculate_trust(self, scores: EntityScores) -> float:
         """
         Implements the Weighted Trust Calculation from the OCX Patent.
@@ -209,7 +211,7 @@ class TrustCalculationEngine:
         if trust_level >= self.trust_threshold:
             action = VerdictAction.ACTION_ALLOW.name
             reasoning = f"Trust level {trust_level:.3f} meets threshold {self.trust_threshold}"
-        elif trust_level >= 0.3:
+        elif trust_level >= self.kill_switch_threshold:
             action = VerdictAction.ACTION_HOLD.name
             reasoning = f"Trust level {trust_level:.3f} requires verification (threshold {self.trust_threshold})"
         else:

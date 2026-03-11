@@ -6,7 +6,7 @@ Links A2A use cases to EBCL contracts and executes them with real agents
 import json
 import uuid
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import logging
 logger = logging.getLogger(__name__)
@@ -179,8 +179,8 @@ contract {title.replace(' ', '_')}:
                 WHERE contract_id = %s AND tenant_id = %s
             """, (
                 ContractStatus.DEPLOYED.value,
-                datetime.now(),
-                datetime.now(),
+                datetime.now(timezone.utc),
+                datetime.now(timezone.utc),
                 contract_id,
                 tenant_id
             ))
@@ -192,7 +192,7 @@ contract {title.replace(' ', '_')}:
             "contract_id": contract_id,
             "tenant_id": tenant_id,
             "status": ContractStatus.DEPLOYED.value,
-            "deployed_at": datetime.now().isoformat()
+            "deployed_at": datetime.now(timezone.utc).isoformat()
         }
     
     def execute_contract(
@@ -205,7 +205,7 @@ contract {title.replace(' ', '_')}:
     ) -> Dict[str, Any]:
         """Execute a contract with real agents (tenant-scoped)"""
         execution_id = f"exec_{uuid.uuid4().hex[:12]}"
-        started_at = datetime.now()
+        started_at = datetime.now(timezone.utc)
         
         try:
             # Get contract (scoped to tenant)
@@ -248,7 +248,7 @@ contract {title.replace(' ', '_')}:
                 "value_created": input_data.get("value", 1000.0)
             }
             
-            completed_at = datetime.now()
+            completed_at = datetime.now(timezone.utc)
             
             # Record execution (with tenant_id)
             with self.db_conn.cursor() as cur:
@@ -306,7 +306,7 @@ contract {title.replace(' ', '_')}:
                     json.dumps(input_data),
                     str(e),
                     started_at,
-                    datetime.now()
+                    datetime.now(timezone.utc)
                 ))
                 self.db_conn.commit()
             
@@ -364,7 +364,7 @@ contract {title.replace(' ', '_')}:
             """, (
                 ebcl_code,
                 new_version,
-                datetime.now(),
+                datetime.now(timezone.utc),
                 contract_id,
                 tenant_id
             ))

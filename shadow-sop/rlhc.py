@@ -13,7 +13,7 @@ it never modifies core enforcement without human approval.
 
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import logging
 import hashlib
@@ -216,7 +216,7 @@ class ShadowSOPRLHC:
         
         correction = HumanCorrection(
             correction_id=correction_id,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             tenant_id=tenant_id,
             agent_id=agent_id,
             correction_type=correction_type,
@@ -452,7 +452,7 @@ class ShadowSOPRLHC:
             action_params={},
             source_patterns=[pattern.pattern_id],
             source_corrections_count=pattern.observation_count,
-            proposed_at=datetime.now(),
+            proposed_at=datetime.now(timezone.utc),
             proposed_by="RLHC_SYSTEM",
         )
         
@@ -488,7 +488,7 @@ class ShadowSOPRLHC:
             return {"success": False, "error": f"Policy status is {policy.status}"}
         
         policy.status = PolicyStatus.APPROVED
-        policy.reviewed_at = datetime.now()
+        policy.reviewed_at = datetime.now(timezone.utc)
         policy.reviewed_by = reviewer_id
         policy.review_notes = notes
         
@@ -517,7 +517,7 @@ class ShadowSOPRLHC:
             return {"success": False, "error": f"Policy status is {policy.status}"}
         
         policy.status = PolicyStatus.REJECTED
-        policy.reviewed_at = datetime.now()
+        policy.reviewed_at = datetime.now(timezone.utc)
         policy.reviewed_by = reviewer_id
         policy.review_notes = reason
         
@@ -591,7 +591,7 @@ class ShadowSOPRLHC:
     
     def _generate_id(self, prefix: str, *parts: str) -> str:
         """Generate a unique ID."""
-        content = "-".join(str(p) for p in parts) + str(datetime.now().timestamp())
+        content = "-".join(str(p) for p in parts) + str(datetime.now(timezone.utc).timestamp())
         hash_val = hashlib.sha256(content.encode()).hexdigest()[:12]
         return f"{prefix}-{hash_val}"
 
