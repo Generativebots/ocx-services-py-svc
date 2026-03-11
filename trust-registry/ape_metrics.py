@@ -5,6 +5,7 @@ Tracks extraction time, evaluation latency, and policy performance
 
 from prometheus_client import Counter, Histogram, Gauge, Summary
 import time
+from typing import Any
 from functools import wraps
 import logging
 logger = logging.getLogger(__name__)

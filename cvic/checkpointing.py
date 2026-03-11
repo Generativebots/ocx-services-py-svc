@@ -19,7 +19,7 @@ import os
 from collections import Counter
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 

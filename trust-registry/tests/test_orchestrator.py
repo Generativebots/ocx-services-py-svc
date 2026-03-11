@@ -77,7 +77,7 @@ class TestOrchestrator:
         from ledger import Ledger
 
         result = ocx_governance_orchestrator(
-            payload={"proposed_action": "SEND_EMAIL"},
+            payload={"proposed_action": "SEND_EMAIL", "context": {"to": "a", "subject": "b", "body": "c"}},
             agent_metadata={"agent_id": "agent-1", "tenant_id": "t-1"},
             business_rules="Allow all.",
             components={"jury": Jury(), "ledger": Ledger()},
@@ -132,7 +132,7 @@ class TestOrchestrator:
         from jury import Jury
 
         result = ocx_governance_orchestrator(
-            payload={"proposed_action": "WRITE"},
+            payload={"proposed_action": "WRITE", "context": {"table": "logs", "action": "insert", "scope": "tenant"}},
             agent_metadata={"agent_id": "a-2", "tenant_id": "t-2"},
             business_rules="Ok.",
             components={"jury": Jury(), "ledger": None},

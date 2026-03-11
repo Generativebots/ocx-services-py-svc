@@ -277,14 +277,17 @@ class EntropyVerifier:
             return 0.0
         
         # Count occurrences
-        unique, counts = np.unique(outcomes, return_counts=True)
-        probabilities = counts / len(outcomes)
+        unique_outcomes = list(set(outcomes))
+        counts = [outcomes.count(u) for u in unique_outcomes]
+        total = len(outcomes)
+        probabilities = [c / total for c in counts]
         
-        # Shannon entropy
-        entropy = -np.sum(probabilities * np.log2(probabilities + 1e-10))
+        # Shannon entropy (pure Python to avoid numpy type issues)
+        import math
+        entropy = -sum(p * math.log2(p + 1e-10) for p in probabilities)
         
         # Normalize to [0, 1]
-        max_entropy = np.log2(len(unique))
+        max_entropy = math.log2(len(unique_outcomes)) if len(unique_outcomes) > 1 else 0
         normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0
         
         return normalized_entropy
@@ -299,12 +302,13 @@ class EntropyVerifier:
         if not outcomes:
             return 0.0
         
-        # Chi-square test for uniform distribution
-        unique, counts = np.unique(outcomes, return_counts=True)
-        expected = len(outcomes) / len(unique)
+        # Chi-square test for uniform distribution (pure Python)
+        unique_outcomes = list(set(outcomes))
+        counts = [outcomes.count(u) for u in unique_outcomes]
+        expected = len(outcomes) / len(unique_outcomes)
         
-        chi_square = np.sum((counts - expected) ** 2 / expected)
-        p_value = 1 - stats.chi2.cdf(chi_square, len(unique) - 1)
+        chi_square = sum((c - expected) ** 2 / expected for c in counts)
+        p_value = 1 - stats.chi2.cdf(chi_square, len(unique_outcomes) - 1)
         
         # Low p-value indicates bias
         bias_score = 1 - p_value

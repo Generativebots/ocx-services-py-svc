@@ -604,7 +604,7 @@ import os
 import psycopg2
 import psycopg2.pool
 from psycopg2.extras import RealDictCursor
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
 
 router = APIRouter()

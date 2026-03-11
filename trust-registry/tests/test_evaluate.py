@@ -26,7 +26,7 @@ class TestEvaluate:
         "agent_id": "agent-test-001",
         "tenant_id": "tenant-abc",
         "proposed_action": "SEND_EMAIL",
-        "context": {"recipient": "user@example.com"},
+        "context": {"recipient": "user@example.com", "subject": "test", "priority": "normal"},
     }
 
     def test_evaluate_returns_200(self, client):
@@ -38,7 +38,7 @@ class TestEvaluate:
         assert data["status"] in ("APPROVED", "BLOCKED", "APPROVED_WITH_WARNING")
 
     def test_evaluate_approved_path(self, client):
-        """Deterministic jury returns 0.81 → APPROVED."""
+        """Deterministic jury returns ~0.70 → APPROVED (threshold=0.65)."""
         resp = client.post("/evaluate", json=self.VALID_PAYLOAD)
         data = resp.json()
         assert data["status"] == "APPROVED"

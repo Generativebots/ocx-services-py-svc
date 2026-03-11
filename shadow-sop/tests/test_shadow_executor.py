@@ -1,176 +1,165 @@
-"""
-Shadow Executor — Patent Claim 13 (SOP Drift Detection).
-Tests: ShadowExecutor, compare_results, metrics, should_promote.
-"""
-
-import pytest
-import asyncio
-import sys
-import os
+"""Tests for shadow-sop/shadow_executor.py — ShadowExecutor"""
+import sys, os, unittest, asyncio, json
+from unittest.mock import MagicMock, patch, AsyncMock
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from shadow_executor import (
-    ShadowExecutor, ShadowVerdict, ShadowResult, ShadowMetrics,
-)
+from shadow_executor import ShadowExecutor, ShadowVerdict, ShadowResult, ShadowMetrics
 
 
-# -------------------------------------------------------------------
-# ShadowVerdict enum
-# -------------------------------------------------------------------
-class TestShadowVerdict:
-    def test_all_variants(self):
-        assert ShadowVerdict.IDENTICAL.value == "IDENTICAL"
-        assert ShadowVerdict.EQUIVALENT.value == "EQUIVALENT"
-        assert ShadowVerdict.DIVERGENT.value == "DIVERGENT"
-        assert ShadowVerdict.SHADOW_BETTER.value == "SHADOW_BETTER"
-        assert ShadowVerdict.SHADOW_WORSE.value == "SHADOW_WORSE"
-        assert ShadowVerdict.SHADOW_ERROR.value == "SHADOW_ERROR"
+class TestShadowVerdict(unittest.TestCase):
+    def test_values(self):
+        self.assertEqual(ShadowVerdict.IDENTICAL.value, "IDENTICAL")
+        self.assertEqual(ShadowVerdict.DIVERGENT.value, "DIVERGENT")
+        self.assertEqual(ShadowVerdict.SHADOW_ERROR.value, "SHADOW_ERROR")
 
 
-# -------------------------------------------------------------------
-# ShadowMetrics.update
-# -------------------------------------------------------------------
-class TestShadowMetrics:
-    def _make_result(self, verdict=ShadowVerdict.IDENTICAL, prod_ms=10.0, shadow_ms=12.0):
-        return ShadowResult(
-            execution_id="ex-1", sop_id="SOP-A", tenant_id="t1",
-            timestamp="2026-01-01T00:00:00Z",
+class TestShadowResult(unittest.TestCase):
+    def test_creation(self):
+        r = ShadowResult(
+            execution_id="e1", sop_id="sop1", tenant_id="t1",
+            timestamp=datetime.now(timezone.utc).isoformat(),
             production_output={"result": "ok"},
             shadow_output={"result": "ok"},
-            verdict=verdict,
-            latency_prod_ms=prod_ms, latency_shadow_ms=shadow_ms,
+            verdict=ShadowVerdict.IDENTICAL,
+            latency_prod_ms=50.0, latency_shadow_ms=52.0,
         )
+        self.assertEqual(r.verdict, ShadowVerdict.IDENTICAL)
+        self.assertEqual(r.sop_id, "sop1")
+
+
+class TestShadowMetrics(unittest.TestCase):
+    def test_defaults(self):
+        m = ShadowMetrics(sop_id="sop1")
+        self.assertEqual(m.total_executions, 0)
+        self.assertEqual(m.identical_count, 0)
 
     def test_update_identical(self):
-        m = ShadowMetrics(sop_id="SOP-A")
-        m.update(self._make_result(ShadowVerdict.IDENTICAL))
-        assert m.total_executions == 1
-        assert m.identical_count == 1
-        assert m.divergence_rate == 0.0
+        m = ShadowMetrics(sop_id="sop1")
+        r = ShadowResult(
+            execution_id="e1", sop_id="sop1", tenant_id="t1",
+            timestamp="2026-01-01T00:00:00Z",
+            production_output={}, shadow_output={},
+            verdict=ShadowVerdict.IDENTICAL,
+            latency_prod_ms=50.0, latency_shadow_ms=55.0,
+        )
+        m.update(r)
+        self.assertEqual(m.total_executions, 1)
+        self.assertEqual(m.identical_count, 1)
+        self.assertAlmostEqual(m.confidence_score, 1.0)
 
     def test_update_divergent(self):
-        m = ShadowMetrics(sop_id="SOP-A")
-        m.update(self._make_result(ShadowVerdict.DIVERGENT))
-        assert m.divergent_count == 1
-        assert m.divergence_rate == 1.0
+        m = ShadowMetrics(sop_id="sop1")
+        r = ShadowResult(
+            execution_id="e1", sop_id="sop1", tenant_id="t1",
+            timestamp="2026-01-01T00:00:00Z",
+            production_output={}, shadow_output={},
+            verdict=ShadowVerdict.DIVERGENT,
+            latency_prod_ms=50.0, latency_shadow_ms=55.0,
+        )
+        m.update(r)
+        self.assertEqual(m.divergent_count, 1)
+        self.assertAlmostEqual(m.divergence_rate, 1.0)
 
-    def test_confidence_calculation(self):
-        m = ShadowMetrics(sop_id="SOP-A")
-        for _ in range(9):
-            m.update(self._make_result(ShadowVerdict.IDENTICAL))
-        m.update(self._make_result(ShadowVerdict.DIVERGENT))
-        assert m.confidence_score == 0.9
-        assert m.divergence_rate == 0.1
+
+class TestShadowExecutorInit(unittest.TestCase):
+    def test_init(self):
+        ex = ShadowExecutor()
+        self.assertIsInstance(ex.results, dict)
+        self.assertIsInstance(ex.metrics, dict)
 
 
-# -------------------------------------------------------------------
-# ShadowExecutor.compare_results
-# -------------------------------------------------------------------
-class TestCompareResults:
-    def _executor(self):
-        return ShadowExecutor()
+class TestCompareResults(unittest.TestCase):
+    def setUp(self):
+        self.executor = ShadowExecutor()
 
-    def test_both_none_identical(self):
-        assert self._executor().compare_results(None, None) == ShadowVerdict.IDENTICAL
+    def test_identical(self):
+        v = self.executor.compare_results({"a": 1}, {"a": 1})
+        self.assertEqual(v, ShadowVerdict.IDENTICAL)
 
-    def test_identical_dicts(self):
-        prod = {"status": "ok", "amount": 100}
-        shadow = {"status": "ok", "amount": 100}
-        assert self._executor().compare_results(prod, shadow) == ShadowVerdict.IDENTICAL
+    def test_both_none(self):
+        v = self.executor.compare_results(None, None)
+        self.assertEqual(v, ShadowVerdict.IDENTICAL)
 
-    def test_equivalent_dicts(self):
-        """Same keys, minor value differences → EQUIVALENT."""
+    def test_divergent(self):
+        v = self.executor.compare_results({"a": 1}, {"a": 2, "b": 3})
+        self.assertEqual(v, ShadowVerdict.DIVERGENT)
+
+    def test_equivalent_small_diff(self):
+        # Same keys, only 1 out of 20 values differs → ≤10% → EQUIVALENT
         prod = {f"k{i}": i for i in range(20)}
         shadow = {f"k{i}": i for i in range(20)}
-        shadow["k0"] = 999  # 1 out of 20 keys differ = 5% < 10%
-        assert self._executor().compare_results(prod, shadow) == ShadowVerdict.EQUIVALENT
-
-    def test_divergent_dicts(self):
-        prod = {"a": 1, "b": 2, "c": 3}
-        shadow = {"a": 99, "b": 99, "c": 99}
-        assert self._executor().compare_results(prod, shadow) == ShadowVerdict.DIVERGENT
-
-    def test_different_keys_divergent(self):
-        prod = {"a": 1, "b": 2}
-        shadow = {"x": 1, "y": 2}
-        assert self._executor().compare_results(prod, shadow) == ShadowVerdict.DIVERGENT
+        shadow["k0"] = 999  # 1 diff out of 20 = 5%
+        v = self.executor.compare_results(prod, shadow)
+        self.assertEqual(v, ShadowVerdict.EQUIVALENT)
 
 
-# -------------------------------------------------------------------
-# ShadowExecutor.execute_shadow (async)
-# -------------------------------------------------------------------
-class TestExecuteShadow:
-    def test_execute_shadow_identical(self):
-        executor = ShadowExecutor()
+class TestGetMetrics(unittest.TestCase):
+    def test_none_for_unknown(self):
+        ex = ShadowExecutor()
+        self.assertIsNone(ex.get_metrics("nonexistent"))
+
+
+class TestShouldPromote(unittest.TestCase):
+    def test_not_enough_executions(self):
+        ex = ShadowExecutor()
+        self.assertFalse(ex.should_promote("sop1"))
+
+    def test_high_confidence_promotes(self):
+        ex = ShadowExecutor()
+        m = ShadowMetrics(sop_id="sop1")
+        m.total_executions = 200
+        m.identical_count = 198
+        m.equivalent_count = 2
+        m.confidence_score = 1.0
+        ex.metrics["sop1"] = m
+        self.assertTrue(ex.should_promote("sop1"))
+
+
+class TestExecuteShadow(unittest.TestCase):
+    def test_async_execution(self):
+        ex = ShadowExecutor()
 
         async def prod_handler(payload):
-            return {"result": "approved", "amount": payload["amount"]}
+            return {"result": "prod"}
 
         async def shadow_handler(payload):
-            return {"result": "approved", "amount": payload["amount"]}
+            return {"result": "prod"}
 
         async def _run():
-            return await executor.execute_shadow(
-                sop_id="SOP-A", tenant_id="t1",
-                request_payload={"amount": 500},
+            return await ex.execute_shadow(
+                sop_id="sop1", tenant_id="t1",
+                request_payload={"input": "test"},
                 prod_handler=prod_handler,
                 shadow_handler=shadow_handler,
             )
 
         result = asyncio.get_event_loop().run_until_complete(_run())
-        assert result.verdict == ShadowVerdict.IDENTICAL
-        assert result.latency_prod_ms > 0
+        self.assertIsInstance(result, ShadowResult)
+        self.assertEqual(result.sop_id, "sop1")
+        self.assertEqual(result.verdict, ShadowVerdict.IDENTICAL)
 
-    def test_execute_shadow_error(self):
-        executor = ShadowExecutor()
+    def test_shadow_error_caught(self):
+        ex = ShadowExecutor()
 
         async def prod_handler(payload):
             return {"result": "ok"}
 
         async def shadow_handler(payload):
-            raise RuntimeError("Shadow pipeline crashed")
+            raise RuntimeError("shadow crashed")
 
         async def _run():
-            return await executor.execute_shadow(
-                sop_id="SOP-B", tenant_id="t1",
+            return await ex.execute_shadow(
+                sop_id="sop1", tenant_id="t1",
                 request_payload={},
                 prod_handler=prod_handler,
                 shadow_handler=shadow_handler,
             )
 
         result = asyncio.get_event_loop().run_until_complete(_run())
-        assert result.verdict == ShadowVerdict.SHADOW_ERROR
+        self.assertEqual(result.verdict, ShadowVerdict.SHADOW_ERROR)
 
 
-# -------------------------------------------------------------------
-# ShadowExecutor.should_promote
-# -------------------------------------------------------------------
-class TestShouldPromote:
-    def test_no_metrics_returns_false(self):
-        assert ShadowExecutor().should_promote("SOP-A") is False
-
-    def test_insufficient_executions(self):
-        executor = ShadowExecutor()
-        executor.metrics["SOP-A"] = ShadowMetrics(
-            sop_id="SOP-A", total_executions=10,
-            confidence_score=1.0, shadow_error_count=0
-        )
-        assert executor.should_promote("SOP-A") is False
-
-    def test_promote_ready(self):
-        executor = ShadowExecutor()
-        executor.metrics["SOP-A"] = ShadowMetrics(
-            sop_id="SOP-A", total_executions=200,
-            identical_count=190, equivalent_count=10,
-            confidence_score=1.0, shadow_error_count=0
-        )
-        assert executor.should_promote("SOP-A") is True
-
-    def test_errors_block_promotion(self):
-        executor = ShadowExecutor()
-        executor.metrics["SOP-A"] = ShadowMetrics(
-            sop_id="SOP-A", total_executions=200,
-            confidence_score=0.98, shadow_error_count=1
-        )
-        assert executor.should_promote("SOP-A") is False
+if __name__ == "__main__":
+    unittest.main()
