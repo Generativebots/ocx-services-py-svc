@@ -1,5 +1,5 @@
 """Tests for ape_metrics.py — Prometheus metric decorators"""
-import sys, os, unittest, time
+import sys, os, unittest, time, types, pytest
 from unittest.mock import MagicMock, patch
 
 # Mock prometheus_client before import
@@ -124,3 +124,121 @@ class TestMetricConstants(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestApeMetricsTrackExtraction:
+    """Tests for track_extraction decorator"""
+
+    def test_track_extraction_success_with_list(self):
+        am = ape_metrics
+        @am.track_extraction("src", "model")
+        def fn():
+            return [{"confidence": 0.9}, {"confidence": 0.8}]
+        result = fn()
+        assert len(result) == 2
+
+    def test_track_extraction_success_empty_list(self):
+        am = ape_metrics
+        @am.track_extraction("src", "model")
+        def fn():
+            return []
+        assert fn() == []
+
+    def test_track_extraction_non_list_result(self):
+        am = ape_metrics
+        @am.track_extraction("src", "model")
+        def fn():
+            return "scalar"
+        assert fn() == "scalar"
+
+    def test_track_extraction_error_branch(self):
+        am = ape_metrics
+        @am.track_extraction("src", "model")
+        def fn():
+            raise ValueError("boom")
+        with pytest.raises(ValueError):
+            fn()
+
+
+
+
+class TestApeMetricsTrackEvaluation:
+    """Tests for track_evaluation decorator"""
+
+    def test_track_evaluation_allowed_tuple(self):
+        am = ape_metrics
+        @am.track_evaluation("P1", "GLOBAL")
+        def fn():
+            return (True, "ALLOW")
+        assert fn() == (True, "ALLOW")
+
+    def test_track_evaluation_blocked_tuple(self):
+        am = ape_metrics
+        @am.track_evaluation("P1", "GLOBAL")
+        def fn():
+            return (False, "BLOCK")
+        assert fn() == (False, "BLOCK")
+
+    def test_track_evaluation_bool_result(self):
+        am = ape_metrics
+        @am.track_evaluation("P1", "GLOBAL")
+        def fn():
+            return True
+        assert fn() is True
+
+    def test_track_evaluation_blocked_bool(self):
+        am = ape_metrics
+        @am.track_evaluation("P1", "GLOBAL")
+        def fn():
+            return False
+        assert fn() is False
+
+
+
+
+class TestApeMetricsTrackGhostState:
+    """Tests for track_ghost_state decorator"""
+
+    def test_ghost_state_allowed(self):
+        am = ape_metrics
+        @am.track_ghost_state("tool_x")
+        def fn():
+            return (True,)
+        assert fn() == (True,)
+
+    def test_ghost_state_blocked(self):
+        am = ape_metrics
+        @am.track_ghost_state("tool_x")
+        def fn():
+            return (False, "blocked")
+        r = fn()
+        assert r[0] is False
+
+    def test_ghost_state_bool(self):
+        am = ape_metrics
+        @am.track_ghost_state("tool_x")
+        def fn():
+            return False
+        assert fn() is False
+
+
+
+
+class TestApeMetricsMainBlock:
+    def test_main_executes(self):
+        src = open(os.path.join(os.path.dirname(__file__), "..", "ape_metrics.py")).read()
+        fake_threading = types.ModuleType("threading")
+        evt = MagicMock()
+        evt.wait = MagicMock(side_effect=KeyboardInterrupt)
+        fake_threading.Event = MagicMock(return_value=evt)
+        g = {"__name__": "__main__", "threading": fake_threading}
+        with patch("prometheus_client.start_http_server"):
+            try:
+                exec(src, g)
+            except KeyboardInterrupt:
+                pass
+
+
+# ──────────────────────── config/settings.py ──────────────────────────────
+
+

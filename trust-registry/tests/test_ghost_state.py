@@ -8,6 +8,7 @@ Tests the GhostStateEngine and GhostStateEscrowGate directly
 import pytest
 import sys
 import os
+from unittest.mock import MagicMock
 
 # Ensure conftest stubs are loaded
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -236,3 +237,155 @@ class TestGhostStateEscrowGate:
 
         health = gate.get_sandbox_health()
         assert health["available"] is False
+
+
+class TestGhostStateEngineEdgeCases:
+    """Cover remaining uncovered lines in ghost_state_engine.py."""
+
+    def test_register_custom_simulator(self):
+        """register_simulator adds custom simulator (L63-65)."""
+        from ghost_state_engine import GhostStateEngine
+
+        engine = GhostStateEngine()
+        custom = MagicMock()
+        engine.register_simulator("custom_tool", custom)
+        assert "custom_tool" in engine.state_simulators
+
+    def test_simulation_failure_blocks(self):
+        """Simulator raising exception → fail-closed (L97-99)."""
+        from ghost_state_engine import GhostStateEngine, StateSnapshot
+
+        engine = GhostStateEngine()
+        engine.register_simulator("bad_tool", lambda s, a: (_ for _ in ()).throw(ValueError("boom")))
+
+        state = StateSnapshot(
+            agent_balance=100.0,
+            account_balances={},
+            data_locations={},
+            pending_approvals={},
+            timestamp=0.0,
+        )
+        # register a simulator that raises
+        def bad_sim(state, args):
+            raise ValueError("sim crash")
+        engine.state_simulators["bad_tool"] = bad_sim
+
+        allowed, ghost, reason = engine.evaluate_with_ghost_state(
+            state, "bad_tool", {}, {"<": [{"var": "agent_balance"}, 0]}
+        )
+        assert allowed is False
+        assert "Simulation failed" in reason
+
+    def test_nested_value_non_dict_path(self):
+        """_get_nested_value returns None for non-dict intermediate (L151)."""
+        from ghost_state_engine import GhostStateEngine
+
+        engine = GhostStateEngine()
+        result = engine._get_nested_value({"a": "string_val"}, "a.b.c")
+        assert result is None
+
+    def test_message_simulator_no_state_change(self):
+        """Message simulator doesn't change state (L192-199)."""
+        from ghost_state_engine import GhostStateEngine, StateSnapshot
+
+        engine = GhostStateEngine()
+        state = StateSnapshot(
+            agent_balance=100.0,
+            account_balances={"acc": 500.0},
+            data_locations={},
+            pending_approvals={},
+            timestamp=0.0,
+        )
+        original_balance = state.agent_balance
+        engine._simulate_message(state, {"content": "hello", "channel": "public"})
+        assert state.agent_balance == original_balance
+
+    def test_external_request_no_data_id(self):
+        """External request without data_id doesn't crash."""
+        from ghost_state_engine import GhostStateEngine, StateSnapshot
+
+        engine = GhostStateEngine()
+        state = StateSnapshot(
+            agent_balance=100.0, account_balances={},
+            data_locations={}, pending_approvals={}, timestamp=0.0,
+        )
+        engine._simulate_external_request(state, {"destination": "https://example.com"})
+        assert state.data_locations == {}
+
+
+
+
+class TestGhostStateEscrowGateExtended:
+    """Cover sandbox client integration paths (L248-264, 268-272)."""
+
+    def test_sandbox_client_allows(self):
+        """Sandbox client returns ALLOW → gate allows."""
+        from ghost_state_engine import GhostStateEngine, GhostStateEscrowGate, StateSnapshot
+
+        engine = GhostStateEngine()
+        mock_sandbox = MagicMock()
+        mock_sandbox.trigger_speculative_execution.return_value = {
+            "verdict": "ALLOW", "speculative_hash": "abc123"
+        }
+
+        gate = GhostStateEscrowGate(engine, sandbox_client=mock_sandbox)
+        state = StateSnapshot(
+            agent_balance=10000.0,
+            account_balances={"checking": 5000.0},
+            data_locations={}, pending_approvals={}, timestamp=0.0,
+        )
+
+        policies = [{"logic": {"<": [{"var": "account_balances.checking"}, 0]}, "action": {"on_fail": "BLOCK"}}]
+        allowed, action = gate.evaluate_with_projection(
+            state, "execute_payment",
+            {"amount": 100, "from_account": "checking"},
+            policies, agent_id="a1", tenant_id="t1",
+        )
+        assert allowed is True
+        assert action == "ALLOW"
+
+    def test_sandbox_client_blocks(self):
+        """Sandbox client returns BLOCK → gate blocks."""
+        from ghost_state_engine import GhostStateEngine, GhostStateEscrowGate, StateSnapshot
+
+        engine = GhostStateEngine()
+        mock_sandbox = MagicMock()
+        mock_sandbox.trigger_speculative_execution.return_value = {
+            "verdict": "BLOCK", "reason": "suspicious syscall"
+        }
+
+        gate = GhostStateEscrowGate(engine, sandbox_client=mock_sandbox)
+        state = StateSnapshot(
+            agent_balance=10000.0,
+            account_balances={"checking": 5000.0},
+            data_locations={}, pending_approvals={}, timestamp=0.0,
+        )
+
+        policies = [{"logic": {"<": [{"var": "account_balances.checking"}, 0]}, "action": {"on_fail": "BLOCK"}}]
+        allowed, action = gate.evaluate_with_projection(
+            state, "execute_payment",
+            {"amount": 100, "from_account": "checking"},
+            policies, agent_id="a1", tenant_id="t1",
+        )
+        assert allowed is False
+        assert action == "BLOCK"
+
+    def test_sandbox_health_with_client(self):
+        """With sandbox client configured, returns its status."""
+        from ghost_state_engine import GhostStateEngine, GhostStateEscrowGate
+
+        engine = GhostStateEngine()
+        mock_sandbox = MagicMock()
+        mock_sandbox.get_sandbox_status.return_value = {"available": True, "runtime": "gVisor"}
+
+        gate = GhostStateEscrowGate(engine, sandbox_client=mock_sandbox)
+        health = gate.get_sandbox_health()
+        assert health["available"] is True
+
+
+# ============================================================================
+# governance_config.py — missing lines: 126-130 (_get_supabase_client),
+#                        139-151 (_load_from_supabase), 173, 185-188, 198-199, 204
+# ============================================================================
+
+

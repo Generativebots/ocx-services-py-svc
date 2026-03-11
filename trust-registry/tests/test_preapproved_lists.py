@@ -112,3 +112,106 @@ class TestListType(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPreApprovedLists:
+
+    def _make_manager(self):
+        from preapproved_lists import PreApprovedListManager
+        mock_redis = MagicMock()
+        return PreApprovedListManager(mock_redis), mock_redis
+
+    def test_create_list(self):
+        from preapproved_lists import ListType
+        mgr, r = self._make_manager()
+        assert mgr.create_list("vendors", ListType.WHITELIST, ["V1", "V2"]) is True
+        r.hset.assert_called_once()
+        r.sadd.assert_called()
+
+    def test_create_list_empty_items(self):
+        from preapproved_lists import ListType
+        mgr, r = self._make_manager()
+        assert mgr.create_list("empty", ListType.BLACKLIST, []) is True
+
+    def test_create_list_error(self):
+        from preapproved_lists import ListType
+        mgr, r = self._make_manager()
+        r.hset.side_effect = Exception("redis down")
+        assert mgr.create_list("vendors", ListType.WHITELIST, ["V1"]) is False
+
+    def test_add_items(self):
+        mgr, r = self._make_manager()
+        r.sadd.return_value = 2
+        assert mgr.add_items("vendors", ["V3", "V4"]) == 2
+
+    def test_add_items_error(self):
+        mgr, r = self._make_manager()
+        r.sadd.side_effect = Exception("fail")
+        assert mgr.add_items("vendors", ["V3"]) == 0
+
+    def test_remove_items(self):
+        mgr, r = self._make_manager()
+        r.srem.return_value = 1
+        assert mgr.remove_items("vendors", ["V1"]) == 1
+
+    def test_remove_items_error(self):
+        mgr, r = self._make_manager()
+        r.srem.side_effect = Exception("fail")
+        assert mgr.remove_items("vendors", ["V1"]) == 0
+
+    def test_check_membership(self):
+        mgr, r = self._make_manager()
+        r.sismember.return_value = True
+        assert mgr.check_membership("vendors", "V1") is True
+
+    def test_get_list_found(self):
+        mgr, r = self._make_manager()
+        r.hgetall.return_value = {
+            "name": b"vendors", "type": b"whitelist", "description": b"desc"
+        }
+        r.smembers.return_value = {b"V1", b"V2"}
+        result = mgr.get_list("vendors")
+        assert result is not None
+        assert result["name"] == "vendors"
+
+    def test_get_list_not_found(self):
+        mgr, r = self._make_manager()
+        r.hgetall.return_value = {}
+        assert mgr.get_list("missing") is None
+
+    def test_get_list_error(self):
+        mgr, r = self._make_manager()
+        r.hgetall.side_effect = Exception("fail")
+        assert mgr.get_list("vendors") is None
+
+    def test_list_all(self):
+        mgr, r = self._make_manager()
+        r.smembers.return_value = {b"list1", b"list2"}
+        result = mgr.list_all()
+        assert len(result) == 2
+
+    def test_list_all_error(self):
+        mgr, r = self._make_manager()
+        r.smembers.side_effect = Exception("fail")
+        assert mgr.list_all() == []
+
+    def test_delete_list(self):
+        mgr, r = self._make_manager()
+        assert mgr.delete_list("vendors") is True
+        assert r.delete.call_count == 2
+
+    def test_delete_list_error(self):
+        mgr, r = self._make_manager()
+        r.delete.side_effect = Exception("fail")
+        assert mgr.delete_list("vendors") is False
+
+    def test_initialize_common_lists(self):
+        from preapproved_lists import initialize_common_lists
+        mock_mgr = MagicMock()
+        initialize_common_lists(mock_mgr)
+        assert mock_mgr.create_list.call_count == 4
+
+
+# ────────────────────── recursive_parser.py ───────────────────────────────
+
+

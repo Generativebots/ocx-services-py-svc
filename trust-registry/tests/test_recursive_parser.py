@@ -142,3 +142,117 @@ class TestValidateConsistency(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRecursiveParser:
+    """Test RecursiveParser (already likely covered but confirm)."""
+
+    def test_parse_splits_by_double_newline(self):
+        from ape_engine import RecursiveParser
+        parser = RecursiveParser()
+        result = parser.parse("Section 1\n\nSection 2\n\nSection 3")
+        assert len(result) == 3
+        assert result[0] == "Section 1"
+
+    def test_parse_strips_whitespace(self):
+        from ape_engine import RecursiveParser
+        parser = RecursiveParser()
+        result = parser.parse("  A  \n\n  B  ")
+        assert result == ["A", "B"]
+
+    def test_parse_empty_string(self):
+        from ape_engine import RecursiveParser
+        parser = RecursiveParser()
+        result = parser.parse("")
+        assert result == []
+
+
+
+
+class TestRecursiveParser:
+
+    def _make_parser(self):
+        mock_vllm = MagicMock()
+        mock_vllm.extract_policies.return_value = [
+            {"policy_id": "P1", "trigger_intent": "mcp.call_tool('x')", "logic": {"==": [1, 1]}, "confidence": 0.9}
+        ]
+        from recursive_parser import RecursiveSemanticParser
+        return RecursiveSemanticParser(mock_vllm), mock_vllm
+
+    def test_parse_document_with_headers(self):
+        parser, _ = self._make_parser()
+        doc = "# Section A\nContent A\n\n# Section B\nContent B"
+        root = parser.parse_document(doc)
+        assert root.level == 0
+        assert len(root.children) == 2
+        assert root.children[0].title == "Section A"
+        assert root.children[1].title == "Section B"
+
+    def test_parse_document_no_headers(self):
+        parser, _ = self._make_parser()
+        root = parser.parse_document("Just plain text. No headers here.")
+        assert len(root.children) == 1
+        assert root.children[0].title == "Untitled"
+
+    def test_split_by_paragraphs(self):
+        parser, _ = self._make_parser()
+        paras = parser._split_by_paragraphs("Para 1\n\nPara 2\n\n\nPara 3")
+        assert len(paras) == 3
+
+    def test_split_by_sentences(self):
+        parser, _ = self._make_parser()
+        sents = parser._split_by_sentences("First sentence. Second sentence! Third?")
+        assert len(sents) >= 3
+
+    def test_extract_from_chunk_short(self):
+        parser, _ = self._make_parser()
+        from recursive_parser import DocumentChunk
+        chunk = DocumentChunk(level=2, title=None, content="short")
+        result = parser._extract_from_chunk(chunk, "src")
+        assert result == []
+
+    def test_extract_from_chunk_long(self):
+        parser, vllm = self._make_parser()
+        from recursive_parser import DocumentChunk
+        chunk = DocumentChunk(level=2, title="Para", content="A " * 30)
+        result = parser._extract_from_chunk(chunk, "src")
+        vllm.extract_policies.assert_called_once()
+        assert len(result) >= 1
+
+    def test_merge_policies_dedup(self):
+        parser, _ = self._make_parser()
+        policies = [
+            {"trigger_intent": "A", "confidence": 0.8, "policy_id": "P1"},
+            {"trigger_intent": "A", "confidence": 0.9, "policy_id": "P2"},
+            {"trigger_intent": "B", "confidence": 0.7, "policy_id": "P3"},
+        ]
+        merged = parser._merge_policies(policies)
+        assert len(merged) == 2
+
+    def test_validate_consistency(self):
+        parser, _ = self._make_parser()
+        policies = [
+            {"policy_id": "P1", "logic": {"==": [1, 1]}},
+            {"policy_id": "P1", "logic": {"==": [1, 1]}},  # duplicate
+            {"policy_id": "P2", "logic": {"==": [1, 1]}},
+        ]
+        valid = parser._validate_consistency(policies)
+        # Should skip the duplicate P1
+        assert len(valid) == 2
+
+    def test_extract_policies_recursive(self):
+        parser, _ = self._make_parser()
+        doc = "# Policy Section\n\nPurchases over $500 require CTO approval."
+        root = parser.parse_document(doc)
+        policies = parser.extract_policies_recursive(root, "Test SOP")
+        assert isinstance(policies, list)
+
+    def test_document_chunk_post_init(self):
+        from recursive_parser import DocumentChunk
+        c = DocumentChunk(level=0, title="Root", content="text")
+        assert c.children == []
+
+
+# ────────────────── json_logic_engine.py (coverage boost) ─────────────────
+
+

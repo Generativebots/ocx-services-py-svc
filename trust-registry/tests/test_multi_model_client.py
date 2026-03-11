@@ -102,3 +102,61 @@ class TestModelProvider(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+import pytest
+
+class TestMultiModelClientBoost:
+    """Additional coverage tests for MultiModelClient, using module-level imports."""
+
+    def test_init(self):
+        models = [
+            ModelConfig(provider=ModelProvider.VLLM, model_name="m1", priority=2),
+            ModelConfig(provider=ModelProvider.OPENAI, model_name="m2", priority=1),
+        ]
+        client = MultiModelClient(models)
+        assert client.models[0].priority == 1  # sorted
+
+    @patch("requests.get", side_effect=Exception("x"))
+    def test_extract_vllm_fallback(self, _):
+        models = [ModelConfig(provider=ModelProvider.VLLM, model_name="m", base_url="http://fake:8000", priority=1)]
+        client = MultiModelClient(models)
+        result = client.extract_policies("procurement doc", "src")
+        assert isinstance(result, list)
+
+    def test_all_models_fail(self):
+        models = [ModelConfig(provider=ModelProvider.OPENAI, model_name="m", api_key="fake", priority=1)]
+        client = MultiModelClient(models)
+        with patch.object(client, "_extract_openai", side_effect=Exception("fail")):
+            with pytest.raises(Exception, match="All models failed"):
+                client.extract_policies("doc", "src")
+
+    @patch("requests.get", side_effect=Exception("x"))
+    def test_fallback_chain(self, _):
+        models = [
+            ModelConfig(provider=ModelProvider.OPENAI, model_name="m1", api_key="k", priority=1),
+            ModelConfig(provider=ModelProvider.VLLM, model_name="m2", base_url="http://fake:8000", priority=2),
+        ]
+        client = MultiModelClient(models)
+        with patch.object(client, "_extract_openai", side_effect=Exception("fail")):
+            result = client.extract_policies("procurement doc", "src")
+            assert isinstance(result, list)
+
+    @patch.dict(os.environ, {"VLLM_ENABLED": "true", "OPENAI_API_KEY": "", "GOOGLE_API_KEY": "", "ANTHROPIC_API_KEY": ""}, clear=False)
+    def test_factory_vllm_only(self):
+        client = create_multi_model_client()
+        assert len(client.models) >= 1
+
+    @patch.dict(os.environ, {"VLLM_ENABLED": "false", "OPENAI_API_KEY": "", "GOOGLE_API_KEY": "", "ANTHROPIC_API_KEY": ""}, clear=False)
+    def test_factory_no_models(self):
+        with pytest.raises(ValueError, match="No models configured"):
+            create_multi_model_client()
+
+    @patch.dict(os.environ, {"VLLM_ENABLED": "true", "OPENAI_API_KEY": "k1", "GOOGLE_API_KEY": "k2", "ANTHROPIC_API_KEY": "k3"})
+    def test_factory_all_models(self):
+        client = create_multi_model_client()
+        assert len(client.models) == 4
+
+    def test_model_provider_enum(self):
+        assert ModelProvider.VLLM.value == "vllm"
+        assert ModelProvider.OPENAI.value == "openai"
+        assert ModelProvider.GOOGLE.value == "google"
+        assert ModelProvider.ANTHROPIC.value == "anthropic"

@@ -134,3 +134,101 @@ class TestKillSwitchRevocation:
 
         result = ks._revoke_agent_tokens("agent-1", "t-1", 0.1)
         assert result is False
+
+
+class TestKillSwitchTenantConfig:
+    """Tests for KillSwitch tenant-specific threshold loading."""
+
+    @patch("kill_switch.requests.Session")
+    def test_tenant_config_overrides_threshold(self, mock_sess_cls):
+        """KillSwitch with tenant_id loads threshold from governance config."""
+        fake_cfg = {"kill_switch_threshold": 0.50}
+        with patch(
+            "config.governance_config.get_tenant_governance_config",
+            return_value=fake_cfg,
+        ):
+            from kill_switch import KillSwitch
+            ks = KillSwitch(
+                backend_url="http://mock:8080",
+                tenant_id="tenant-abc",
+            )
+            assert ks.THRESHOLD == 0.50
+
+    @patch("kill_switch.requests.Session")
+    def test_tenant_config_missing_key_uses_default(self, mock_sess_cls):
+        """Governance config without kill_switch_threshold uses 0.3 default."""
+        with patch(
+            "config.governance_config.get_tenant_governance_config",
+            return_value={},
+        ):
+            from kill_switch import KillSwitch
+            ks = KillSwitch(
+                backend_url="http://mock:8080",
+                tenant_id="tenant-xyz",
+            )
+            assert ks.THRESHOLD == 0.3
+
+
+
+
+class TestKillSwitchDispatchEvent:
+    """Tests for _dispatch_block_event covering L141-161."""
+
+    @patch("kill_switch.requests.Session")
+    def test_dispatch_event_success(self, mock_sess_cls):
+        from kill_switch import KillSwitch
+
+        mock_session = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_session.post.return_value = mock_resp
+
+        ks = KillSwitch(backend_url="http://mock:8080")
+        ks._session = mock_session
+
+        payload = {"block_agent": "agent-xyz-12345678", "tenant_id": "t1"}
+        event_id = ks._dispatch_block_event(payload)
+        assert event_id is not None
+        assert event_id.startswith("ks-agent-xy")
+
+    @patch("kill_switch.requests.Session")
+    def test_dispatch_event_server_error_still_returns_id(self, mock_sess_cls):
+        """Non-200 response → event_id still returned (non-critical path)."""
+        from kill_switch import KillSwitch
+
+        mock_session = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_session.post.return_value = mock_resp
+
+        ks = KillSwitch(backend_url="http://mock:8080")
+        ks._session = mock_session
+
+        payload = {"block_agent": "agent-err-12345678", "tenant_id": "t1"}
+        event_id = ks._dispatch_block_event(payload)
+        # Even on 500, the event_id is returned (L155-158 coverage)
+        assert event_id is not None
+
+    @patch("kill_switch.requests.Session")
+    def test_dispatch_event_connection_error_returns_none(self, mock_sess_cls):
+        """Request exception → returns None."""
+        import requests as real_requests
+        from kill_switch import KillSwitch
+
+        mock_session = MagicMock()
+        mock_session.post.side_effect = real_requests.exceptions.ConnectionError("down")
+
+        ks = KillSwitch(backend_url="http://mock:8080")
+        ks._session = mock_session
+
+        payload = {"block_agent": "agent-down-1234", "tenant_id": "t1"}
+        event_id = ks._dispatch_block_event(payload)
+        assert event_id is None
+
+
+# ============================================================================
+# jury.py — missing lines: 18-19 (_HAS_GOV_CONFIG=False), 39-41, 65, 76, 79,
+#            87, 90, 115-139 (LLM client + fallback)
+# ============================================================================
+
+

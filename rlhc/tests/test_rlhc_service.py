@@ -1,4 +1,4 @@
-"""Tests for rlhc/rlhc_service.py — cluster_decisions with 3 clustering strategies."""
+"""Tests for rlhc — cluster_decisions, RLHCServiceImpl gRPC, and governance config."""
 
 import sys
 import os
@@ -230,3 +230,82 @@ class TestGovernanceConfig:
         result = cluster_decisions(decisions, tenant_id="tenant-abc", min_frequency=2, min_confidence=0.5)
         # Should not crash; governance config is mocked
         assert result.total_decisions == 3
+
+
+# ===========================================================================
+# RLHCServiceImpl gRPC Tests (merged from test_rlhc_server.py)
+# ===========================================================================
+
+import unittest
+from rlhc.rlhc_server import RLHCServiceImpl
+
+
+class TestClusterDecisionsGRPC(unittest.TestCase):
+    def setUp(self):
+        self.svc = RLHCServiceImpl()
+        self.ctx = mock.MagicMock()
+
+    def test_empty_decisions(self):
+        request = {
+            "analysis_id": "test-1",
+            "tenant_id": "t1",
+            "decisions": [],
+            "min_frequency": 2,
+            "min_confidence": 0.6,
+        }
+        resp = self.svc.ClusterDecisions(request, self.ctx)
+        self.assertIsNotNone(resp)
+
+    def test_with_dict_decisions(self):
+        request = {
+            "analysis_id": "test-2",
+            "tenant_id": "t1",
+            "decisions": [
+                {
+                    "decision_id": "d1",
+                    "agent_id": "a1",
+                    "tool_name": "web_search",
+                    "original_verdict": "BLOCK",
+                    "override_action": "ALLOW",
+                    "reason": "Safe query",
+                    "trust_score": 0.8,
+                }
+            ],
+            "min_frequency": 1,
+            "min_confidence": 0.5,
+        }
+        resp = self.svc.ClusterDecisions(request, self.ctx)
+        self.assertIsNotNone(resp)
+
+    def test_auto_analysis_id(self):
+        request = {
+            "tenant_id": "t1",
+            "decisions": [],
+        }
+        resp = self.svc.ClusterDecisions(request, self.ctx)
+        self.assertIsNotNone(resp)
+
+
+class TestGetPatternsGRPC(unittest.TestCase):
+    def setUp(self):
+        self.svc = RLHCServiceImpl()
+        self.ctx = mock.MagicMock()
+
+    def test_get_empty_patterns(self):
+        if hasattr(self.svc, "GetPatterns"):
+            request = {"tenant_id": "t1"}
+            resp = self.svc.GetPatterns(request, self.ctx)
+            self.assertIsNotNone(resp)
+
+
+class TestUpdatePatternStatusGRPC(unittest.TestCase):
+    def setUp(self):
+        self.svc = RLHCServiceImpl()
+        self.ctx = mock.MagicMock()
+
+    def test_update_nonexistent(self):
+        if hasattr(self.svc, "UpdatePatternStatus"):
+            request = {"pattern_id": "nonexistent", "status": "APPROVED"}
+            resp = self.svc.UpdatePatternStatus(request, self.ctx)
+            self.assertIsNotNone(resp)
+

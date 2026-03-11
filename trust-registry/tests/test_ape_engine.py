@@ -1,5 +1,5 @@
 """Tests for ape_engine.py — VLLMClient, RecursiveParser, extract_rules endpoint"""
-import sys, os, unittest
+import sys, os, unittest, pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 
 # Mock httpx before import
@@ -111,3 +111,76 @@ class TestExtractRulesEndpoint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAPEExtractEndpoint:
+    """Test the /extract FastAPI endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_extract_rules_with_mock_llm(self):
+        """Extract endpoint processes chunks and returns validated rules."""
+        from ape_engine import extract_rules, ExtractRequest
+
+        # Mock the global llm to return structured data
+        mock_llm_data = [{
+            "condition": "amount > 500",
+            "suggested_action": "BLOCK",
+            "confidence_score": 0.95,
+            "logic_gate": {"field": "amount", "operator": ">", "value": "500"},
+        }]
+
+        with patch("ape_engine.llm") as mock_llm:
+            mock_llm.generate_json = AsyncMock(return_value=mock_llm_data)
+
+            req = ExtractRequest(
+                document_text="If amount exceeds 500, block the transaction.",
+                source_name="Test SOP",
+                tenant_id="t-1",
+            )
+            result = await extract_rules(req)
+            assert len(result) >= 1
+            assert result[0].tenant_id == "t-1"
+            assert result[0].confidence_score == 0.95
+
+    @pytest.mark.asyncio
+    async def test_extract_rules_skips_invalid(self):
+        """Invalid rules are skipped during validation."""
+        from ape_engine import extract_rules, ExtractRequest
+
+        # Return data that will fail PolicyObject validation (missing required fields)
+        invalid_data = [{"invalid_field_only": True}]
+
+        with patch("ape_engine.llm") as mock_llm:
+            mock_llm.generate_json = AsyncMock(return_value=invalid_data)
+
+            req = ExtractRequest(
+                document_text="Some text",
+                source_name="Test",
+                tenant_id="t-1",
+            )
+            result = await extract_rules(req)
+            assert result == []  # Invalid rules skipped
+
+    @pytest.mark.asyncio
+    async def test_extract_rules_empty_document(self):
+        """Empty document → no chunks → no rules."""
+        from ape_engine import extract_rules, ExtractRequest
+
+        with patch("ape_engine.llm") as mock_llm:
+            mock_llm.generate_json = AsyncMock(return_value=[])
+
+            req = ExtractRequest(
+                document_text="",
+                source_name="Empty",
+                tenant_id="t-1",
+            )
+            result = await extract_rules(req)
+            assert result == []
+
+
+# ============================================================================
+# registry.py — missing lines: 30, 39, 46-68, 101-103, 123-135, 140-163,
+#               169-172, 183, 206-214, 223-233
+# ============================================================================
+
+

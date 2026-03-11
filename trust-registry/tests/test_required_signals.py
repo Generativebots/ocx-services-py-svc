@@ -145,3 +145,128 @@ class TestEnforceWithSignals(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRequiredSignals:
+
+    def test_signal_not_expired(self):
+        from required_signals import Signal, SignalType
+        s = Signal(SignalType.CTO_SIGNATURE, "val", time.time(), expires_at=time.time() + 1000)
+        assert s.is_expired() is False
+        assert s.is_valid() is True
+
+    def test_signal_expired(self):
+        from required_signals import Signal, SignalType
+        s = Signal(SignalType.CTO_SIGNATURE, "val", time.time(), expires_at=time.time() - 10)
+        assert s.is_expired() is True
+        assert s.is_valid() is False
+
+    def test_signal_no_expiry(self):
+        from required_signals import Signal, SignalType
+        s = Signal(SignalType.HUMAN_APPROVAL, "val", time.time())
+        assert s.is_expired() is False
+
+    def test_add_signal(self):
+        from required_signals import SignalCollector, SignalType
+        c = SignalCollector()
+        assert c.add_signal("tx1", SignalType.CTO_SIGNATURE, "sig") is True
+        assert len(c.get_signals("tx1")) == 1
+
+    def test_add_signal_with_ttl(self):
+        from required_signals import SignalCollector, SignalType
+        c = SignalCollector()
+        c.add_signal("tx1", SignalType.CTO_SIGNATURE, "sig", ttl_seconds=300)
+        sig = c.get_signals("tx1")[0]
+        assert sig.expires_at is not None
+
+    def test_verify_signals_all_present(self):
+        from required_signals import SignalCollector, SignalType
+        c = SignalCollector()
+        c.add_signal("tx1", SignalType.CTO_SIGNATURE, "sig")
+        c.add_signal("tx1", SignalType.JURY_ENTROPY_CHECK, "ent")
+        ok, missing = c.verify_signals("tx1", ["CTO_SIGNATURE", "JURY_ENTROPY_CHECK"])
+        assert ok is True
+        assert missing == []
+
+    def test_verify_signals_missing(self):
+        from required_signals import SignalCollector, SignalType
+        c = SignalCollector()
+        c.add_signal("tx1", SignalType.CTO_SIGNATURE, "sig")
+        ok, missing = c.verify_signals("tx1", ["CTO_SIGNATURE", "JURY_ENTROPY_CHECK"])
+        assert ok is False
+        assert "JURY_ENTROPY_CHECK" in missing
+
+    def test_verify_signals_unknown_tx(self):
+        from required_signals import SignalCollector
+        c = SignalCollector()
+        ok, missing = c.verify_signals("unknown", ["CTO_SIGNATURE"])
+        assert ok is False
+
+    def test_cleanup_expired(self):
+        from required_signals import SignalCollector, SignalType
+        c = SignalCollector()
+        c.add_signal("tx1", SignalType.CTO_SIGNATURE, "sig", ttl_seconds=-1)
+        removed = c.cleanup_expired()
+        assert removed >= 1
+        assert c.get_signals("tx1") == []
+
+    def test_cleanup_keeps_valid(self):
+        from required_signals import SignalCollector, SignalType
+        c = SignalCollector()
+        c.add_signal("tx1", SignalType.CTO_SIGNATURE, "sig", ttl_seconds=9999)
+        removed = c.cleanup_expired()
+        assert removed == 0
+        assert len(c.get_signals("tx1")) == 1
+
+    def test_cto_signature_verify(self):
+        from required_signals import CTOSignatureVerifier
+        v = CTOSignatureVerifier("pubkey")
+        data = {"amount": 100}
+        sig = v.create_signature(data)
+        assert v.verify_signature(data, sig) is True
+
+    def test_cto_signature_verify_bad(self):
+        from required_signals import CTOSignatureVerifier
+        v = CTOSignatureVerifier("pubkey")
+        assert v.verify_signature({"a": 1}, "bad_sig") is False
+
+    def test_jury_entropy_checker(self):
+        from required_signals import JuryEntropyChecker
+        jury_client = MagicMock()
+        jury_client.EvaluateAction.return_value = (True, None)
+        entropy_monitor = MagicMock()
+        entropy_monitor.CheckEntropy.return_value = (True, None)
+        checker = JuryEntropyChecker(jury_client, entropy_monitor)
+        passed, details = checker.check_jury_entropy("a1", "act", {"k": "v"})
+        assert passed is True
+        assert details["jury_passed"] is True
+
+    def test_jury_entropy_checker_fails(self):
+        from required_signals import JuryEntropyChecker
+        jury_client = MagicMock()
+        jury_client.EvaluateAction.return_value = (False, "err")
+        entropy_monitor = MagicMock()
+        entropy_monitor.CheckEntropy.return_value = (True, None)
+        checker = JuryEntropyChecker(jury_client, entropy_monitor)
+        passed, details = checker.check_jury_entropy("a1", "act", {})
+        assert passed is False
+
+    def test_enforce_with_signals(self):
+        from required_signals import enforce_with_signals, SignalCollector, SignalType
+        c = SignalCollector()
+        c.add_signal("tx1", SignalType.CTO_SIGNATURE, "sig")
+        ok, action = enforce_with_signals("tx1", ["CTO_SIGNATURE"], c)
+        assert ok is True
+        assert action == "ALLOW"
+
+    def test_enforce_with_signals_block(self):
+        from required_signals import enforce_with_signals, SignalCollector
+        c = SignalCollector()
+        ok, action = enforce_with_signals("tx1", ["CTO_SIGNATURE"], c)
+        assert ok is False
+        assert "BLOCK" in action
+
+
+# ────────────────────── preapproved_lists.py ──────────────────────────────
+
+

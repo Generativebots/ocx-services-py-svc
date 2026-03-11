@@ -290,3 +290,165 @@ class TestTracesNoSupabase:
         r = client.get("/traces/trace-1", headers={"X-Tenant-ID": "t1"})
         assert r.status_code == 503
 
+
+# ---------------------------------------------------------------------------
+# Coverage Boost: Trace CRUD with SUPABASE_URL set (httpx mocked)
+# ---------------------------------------------------------------------------
+
+class TestTracesWithSupabase:
+    def test_list_traces_success(self):
+        api_mod.SUPABASE_URL = "https://fake.supabase.co"
+        api_mod.SUPABASE_KEY = "fake-key"
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [{"trace_id": "t1", "process_id": "p1"}]
+        with mock.patch("httpx.AsyncClient") as MockClient:
+            instance = mock.AsyncMock()
+            instance.get.return_value = mock_resp
+            MockClient.return_value.__aenter__ = mock.AsyncMock(return_value=instance)
+            MockClient.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            r = client.get("/traces", headers={"X-Tenant-ID": "t1"})
+        assert r.status_code == 200
+        assert len(r.json()["traces"]) == 1
+        api_mod.SUPABASE_URL = ""
+        api_mod.SUPABASE_KEY = ""
+
+    def test_list_traces_error(self):
+        api_mod.SUPABASE_URL = "https://fake.supabase.co"
+        api_mod.SUPABASE_KEY = "fake-key"
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.text = "Internal error"
+        with mock.patch("httpx.AsyncClient") as MockClient:
+            instance = mock.AsyncMock()
+            instance.get.return_value = mock_resp
+            MockClient.return_value.__aenter__ = mock.AsyncMock(return_value=instance)
+            MockClient.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            r = client.get("/traces", headers={"X-Tenant-ID": "t1"})
+        assert r.status_code == 500
+        api_mod.SUPABASE_URL = ""
+        api_mod.SUPABASE_KEY = ""
+
+    def test_create_trace_success(self):
+        api_mod.SUPABASE_URL = "https://fake.supabase.co"
+        api_mod.SUPABASE_KEY = "fake-key"
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 201
+        mock_resp.json.return_value = [{"trace_id": "new-1"}]
+        with mock.patch("httpx.AsyncClient") as MockClient:
+            instance = mock.AsyncMock()
+            instance.post.return_value = mock_resp
+            MockClient.return_value.__aenter__ = mock.AsyncMock(return_value=instance)
+            MockClient.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            r = client.post(
+                "/traces",
+                json={"process_id": "p1", "agent_id": "a1", "step_name": "s1"},
+                headers={"X-Tenant-ID": "t1"},
+            )
+        assert r.status_code == 200
+        api_mod.SUPABASE_URL = ""
+        api_mod.SUPABASE_KEY = ""
+
+    def test_create_trace_error(self):
+        api_mod.SUPABASE_URL = "https://fake.supabase.co"
+        api_mod.SUPABASE_KEY = "fake-key"
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.text = "Bad request"
+        with mock.patch("httpx.AsyncClient") as MockClient:
+            instance = mock.AsyncMock()
+            instance.post.return_value = mock_resp
+            MockClient.return_value.__aenter__ = mock.AsyncMock(return_value=instance)
+            MockClient.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            r = client.post(
+                "/traces",
+                json={"process_id": "p1", "agent_id": "a1", "step_name": "s1"},
+                headers={"X-Tenant-ID": "t1"},
+            )
+        assert r.status_code == 400
+        api_mod.SUPABASE_URL = ""
+        api_mod.SUPABASE_KEY = ""
+
+    def test_get_trace_found(self):
+        api_mod.SUPABASE_URL = "https://fake.supabase.co"
+        api_mod.SUPABASE_KEY = "fake-key"
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [{"trace_id": "tr-1", "process_id": "p1"}]
+        with mock.patch("httpx.AsyncClient") as MockClient:
+            instance = mock.AsyncMock()
+            instance.get.return_value = mock_resp
+            MockClient.return_value.__aenter__ = mock.AsyncMock(return_value=instance)
+            MockClient.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            r = client.get("/traces/tr-1", headers={"X-Tenant-ID": "t1"})
+        assert r.status_code == 200
+        assert r.json()["trace_id"] == "tr-1"
+        api_mod.SUPABASE_URL = ""
+        api_mod.SUPABASE_KEY = ""
+
+    def test_get_trace_not_found(self):
+        api_mod.SUPABASE_URL = "https://fake.supabase.co"
+        api_mod.SUPABASE_KEY = "fake-key"
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = []
+        with mock.patch("httpx.AsyncClient") as MockClient:
+            instance = mock.AsyncMock()
+            instance.get.return_value = mock_resp
+            MockClient.return_value.__aenter__ = mock.AsyncMock(return_value=instance)
+            MockClient.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+            r = client.get("/traces/missing", headers={"X-Tenant-ID": "t1"})
+        assert r.status_code == 404
+        api_mod.SUPABASE_URL = ""
+        api_mod.SUPABASE_KEY = ""
+
+
+# ---------------------------------------------------------------------------
+# Coverage Boost: _supabase_headers helper
+# ---------------------------------------------------------------------------
+
+class TestSupabaseHeaders:
+    def test_headers_returned(self):
+        api_mod.SUPABASE_KEY = "test-key"
+        headers = api_mod._supabase_headers()
+        assert headers["apikey"] == "test-key"
+        assert "Bearer test-key" in headers["Authorization"]
+        assert headers["Content-Type"] == "application/json"
+        api_mod.SUPABASE_KEY = ""
+
+
+# ---------------------------------------------------------------------------
+# Coverage Boost: Shadow results empty + GET all metrics with data
+# ---------------------------------------------------------------------------
+
+class TestShadowResultsEmpty:
+    def test_get_results_empty(self):
+        api_mod.shadow_executor.get_results = mock.MagicMock(return_value=[])
+        r = client.get("/shadow/results/sop-empty", headers={"X-Tenant-ID": "t1"})
+        assert r.status_code == 200
+        assert r.json()["count"] == 0
+        assert r.json()["results"] == []
+
+class TestGetAllMetricsWithData:
+    def test_all_metrics_with_data(self):
+        m1 = mock.MagicMock()
+        m1.sop_id = "sop-1"
+        m1.total_executions = 50
+        m1.identical_count = 40
+        m1.equivalent_count = 5
+        m1.divergent_count = 3
+        m1.shadow_better_count = 1
+        m1.shadow_worse_count = 1
+        m1.shadow_error_count = 0
+        m1.avg_latency_delta_ms = 2.345
+        m1.divergence_rate = 0.06
+        m1.confidence_score = 0.94
+        m1.started_at = "2026-01-01T00:00:00Z"
+        m1.last_execution_at = "2026-01-02T00:00:00Z"
+        api_mod.shadow_executor.get_all_metrics = mock.MagicMock(return_value={"sop-1": m1})
+        r = client.get("/shadow/metrics", headers={"X-Tenant-ID": "t1"})
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["experiments"]) == 1
+        assert data["experiments"][0]["total_executions"] == 50
+
