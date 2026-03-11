@@ -42,7 +42,7 @@ class CommitteeMember:
         self.organization = organization
         self.role = role
         self.votes = votes
-        self.joined_at = datetime.utcnow()
+        self.joined_at = datetime.now(timezone.utc)
         self.active = True
     
     def to_dict(self) -> Dict:
@@ -66,7 +66,7 @@ class GovernanceProposal:
         self.proposed_by = proposed_by
         self.proposal_type = proposal_type  # "PROTOCOL_CHANGE", "VERSION_UPDATE", "STANDARD_ADDITION"
         self.status = ProposalStatus.DRAFT
-        self.created_at = datetime.utcnow()
+        self.created_at = datetime.now(timezone.utc)
         self.voting_starts_at: Optional[datetime] = None
         self.voting_ends_at: Optional[datetime] = None
         self.votes_for: List[str] = []
@@ -211,8 +211,8 @@ class OCXStandardsCommittee:
             raise ValueError(f"Proposal must be in DRAFT status to start voting")
         
         proposal.status = ProposalStatus.VOTING
-        proposal.voting_starts_at = datetime.utcnow()
-        proposal.voting_ends_at = datetime.utcnow() + timedelta(days=self.VOTING_PERIOD_DAYS)
+        proposal.voting_starts_at = datetime.now(timezone.utc)
+        proposal.voting_ends_at = datetime.now(timezone.utc) + timedelta(days=self.VOTING_PERIOD_DAYS)
         
         print(f"🗳️  Voting started for: {proposal.title}")
         print(f"   Voting ends: {proposal.voting_ends_at.isoformat()}")
@@ -228,7 +228,7 @@ class OCXStandardsCommittee:
         if proposal.status != ProposalStatus.VOTING:
             raise ValueError(f"Proposal is not in voting status")
         
-        if datetime.utcnow() > proposal.voting_ends_at:
+        if datetime.now(timezone.utc) > proposal.voting_ends_at:
             raise ValueError(f"Voting period has ended")
         
         member = self.members.get(member_id)

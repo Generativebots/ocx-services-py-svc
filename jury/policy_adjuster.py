@@ -81,7 +81,7 @@ class PolicyAdjuster:
             'new_value': adjustment.get('new_value'),
             'reason': adjustment.get('reason'),
             'approved_by': adjustment.get('approved_by'),
-            'timestamp': __import__('datetime').datetime.utcnow().isoformat()
+            'timestamp': __import__('datetime').datetime.now(timezone.utc).isoformat()
         }
         self.adjustment_log.append(log_entry)
         

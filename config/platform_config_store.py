@@ -129,24 +129,24 @@ def get_platform_value(
     # 1. Tenant override
     if tenant_id:
         cache_key = f"{tenant_id}:{category}:{key}"
-        if cache_key in _cache and datetime.utcnow() < _cache_expiry.get(cache_key, datetime.min):
+        if cache_key in _cache and datetime.now(timezone.utc) < _cache_expiry.get(cache_key, datetime.min):
             return _cache[cache_key]
 
         val = _load_from_db(tenant_id, category, key)
         if val is not None:
             _cache[cache_key] = val
-            _cache_expiry[cache_key] = datetime.utcnow() + _CACHE_TTL
+            _cache_expiry[cache_key] = datetime.now(timezone.utc) + _CACHE_TTL
             return val
 
     # 2. Platform default (from DB seed data)
     default_cache_key = f":{category}:{key}"
-    if default_cache_key in _cache and datetime.utcnow() < _cache_expiry.get(default_cache_key, datetime.min):
+    if default_cache_key in _cache and datetime.now(timezone.utc) < _cache_expiry.get(default_cache_key, datetime.min):
         return _cache[default_cache_key]
 
     val = _load_from_db("", category, key)
     if val is not None:
         _cache[default_cache_key] = val
-        _cache_expiry[default_cache_key] = datetime.utcnow() + _CACHE_TTL
+        _cache_expiry[default_cache_key] = datetime.now(timezone.utc) + _CACHE_TTL
         return val
 
     # 3. Emergency fallback — DB was unreachable
@@ -198,13 +198,13 @@ def get_platform_default(
         The config value
     """
     cache_key = f":{category}:{key}"
-    if cache_key in _cache and datetime.utcnow() < _cache_expiry.get(cache_key, datetime.min):
+    if cache_key in _cache and datetime.now(timezone.utc) < _cache_expiry.get(cache_key, datetime.min):
         return _cache[cache_key]
 
     val = _load_from_db("", category, key)
     if val is not None:
         _cache[cache_key] = val
-        _cache_expiry[cache_key] = datetime.utcnow() + _CACHE_TTL
+        _cache_expiry[cache_key] = datetime.now(timezone.utc) + _CACHE_TTL
         return val
 
     if default is not None:

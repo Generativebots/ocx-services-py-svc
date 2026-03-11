@@ -28,6 +28,7 @@ class PolicyVersion:
     created_by: str
     change_summary: str
     content_hash: str
+    tenant_id: str = ""  # Multi-tenant isolation
     is_active: bool = False
     
     def to_dict(self) -> Dict[str, Any]:
@@ -79,7 +80,7 @@ class PolicyVersionManager:
         Returns:
             PolicyVersion object
         """
-        content_hash = self._calculate_hash(logic, action)
+        content_hash = self._calculate_hash(logic, action, confidence, tier, source_name)
         
         version = PolicyVersion(
             policy_id=policy_id,
@@ -129,11 +130,13 @@ class PolicyVersionManager:
         new_tier = tier if tier is not None else current.tier
         new_confidence = confidence if confidence is not None else current.confidence
         
-        content_hash = self._calculate_hash(new_logic, new_action)
+        content_hash = self._calculate_hash(
+            new_logic, new_action, new_confidence, new_tier, current.source_name
+        )
         
         # Check if content actually changed
         if content_hash == current.content_hash:
-            print(f"⚠️  No changes detected for policy {policy_id}")
+            logger.info("No changes detected for policy %s", policy_id)
             return current
         
         new_version_num = current.version + 1
@@ -184,7 +187,7 @@ class PolicyVersionManager:
                 break
         
         if not target:
-            print(f"❌ Version {target_version} not found for policy {policy_id}")
+            logger.warning("Version %d not found for policy %s", target_version, policy_id)
             return None
         
         # Create new version as copy of target
@@ -293,9 +296,30 @@ class PolicyVersionManager:
         
         return diff
     
-    def _calculate_hash(self, logic: Dict[str, Any], action: Dict[str, Any]) -> str:
-        """Calculate content hash for version comparison"""
-        content = json.dumps({"logic": logic, "action": action}, sort_keys=True)
+    def _calculate_hash(
+        self,
+        logic: Dict[str, Any],
+        action: Dict[str, Any],
+        confidence: float = 0.0,
+        tier: str = "",
+        source_name: str = "",
+    ) -> str:
+        """Calculate content hash for version comparison.
+        
+        Includes ALL versioned fields per patent audit trail requirements:
+        logic, action, confidence, tier, and source_name.
+        Any metadata change creates a new auditable version.
+        """
+        content = json.dumps(
+            {
+                "logic": logic,
+                "action": action,
+                "confidence": confidence,
+                "tier": tier,
+                "source_name": source_name,
+            },
+            sort_keys=True,
+        )
         return hashlib.sha256(content.encode()).hexdigest()
 
 

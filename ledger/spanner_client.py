@@ -69,7 +69,7 @@ class ComplianceClient:
                 'pid_verified': event.get('pid_verified'),
                 'block_hash': event.get('hash'),
                 'previous_hash': event.get('previous_hash'),
-                'timestamp': event.get('timestamp', datetime.utcnow().isoformat()),
+                'timestamp': event.get('timestamp', datetime.now(timezone.utc).isoformat()),
             }).execute()
             
             logger.info(f"Governance event inserted: {event.get('transaction_id')}")
@@ -180,7 +180,7 @@ class ComplianceClient:
                 'new_threshold': adjustment.get('new_threshold'),
                 'reason': adjustment.get('reason'),
                 'adjusted_by': adjustment.get('adjusted_by'),
-                'timestamp': adjustment.get('timestamp', datetime.utcnow().isoformat()),
+                'timestamp': adjustment.get('timestamp', datetime.now(timezone.utc).isoformat()),
             }).execute()
             return True
         except Exception as e:
@@ -231,7 +231,7 @@ class ComplianceClient:
                 'detected_pattern': shadow_sop.get('detected_pattern'),
                 'confidence': shadow_sop.get('confidence'),
                 'status': shadow_sop.get('status', 'pending'),
-                'timestamp': shadow_sop.get('timestamp', datetime.utcnow().isoformat()),
+                'timestamp': shadow_sop.get('timestamp', datetime.now(timezone.utc).isoformat()),
             }).execute()
             return True
         except Exception as e:
@@ -277,7 +277,7 @@ class ComplianceClient:
             update_data = {
                 'status': status,
                 'reviewed_by': reviewed_by,
-                'reviewed_at': datetime.utcnow().isoformat(),
+                'reviewed_at': datetime.now(timezone.utc).isoformat(),
             }
             if reason:
                 update_data['rejection_reason'] = reason

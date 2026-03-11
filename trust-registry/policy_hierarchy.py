@@ -6,7 +6,7 @@ Implements GLOBAL → CONTEXTUAL → DYNAMIC precedence
 from enum import Enum
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 logger = logging.getLogger(__name__)
@@ -29,19 +29,20 @@ class Policy:
     action: Dict[str, Any]
     confidence: float
     source_name: str
+    tenant_id: str = ""  # Multi-tenant isolation (CIP requirement)
     
     # Optional fields
     roles: List[str] = field(default_factory=list)  # For CONTEXTUAL tier
     expires_at: Optional[datetime] = None  # For DYNAMIC tier
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     is_active: bool = True
     
     def is_expired(self) -> bool:
         """Check if policy has expired (for DYNAMIC tier)"""
         if self.expires_at is None:
             return False
-        return datetime.utcnow() > self.expires_at
+        return datetime.now(timezone.utc) > self.expires_at
     
     def applies_to_role(self, role: str) -> bool:
         """Check if policy applies to given role (for CONTEXTUAL tier)"""
@@ -226,7 +227,7 @@ if __name__ == "__main__":
         action={"on_fail": "FLAG", "on_pass": "ALLOW"},
         confidence=0.8,
         source_name="Project Alpha Brief",
-        expires_at=datetime.utcnow() + timedelta(days=7)
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7)
     )
     hierarchy.add_policy(dynamic_policy)
     

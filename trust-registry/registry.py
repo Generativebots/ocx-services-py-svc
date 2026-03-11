@@ -195,3 +195,39 @@ class Registry:
         return True
 
     # ... (Other methods like get_raci can remain similar but using Supabase) ...
+
+    def get_active_rules(self, tenant_id: str = None) -> list:
+        """
+        Retrieve all active business rules, optionally filtered by tenant.
+        Used by the governance orchestrator and policy engine.
+        """
+        if not self.supabase:
+            return []
+        try:
+            query = self.supabase.table("rules").select("*").eq("status", "Active")
+            if tenant_id:
+                query = query.eq("tenant_id", tenant_id)
+            response = query.execute()
+            return response.data if response.data else []
+        except Exception as e:
+            logger.error("Failed to fetch active rules: %s", e)
+            return []
+
+    def list_agents(self, tenant_id: str) -> list:
+        """
+        List all registered agents for a tenant.
+        Multi-tenant: scoped to tenant_id via RLS-compliant query.
+        """
+        if not self.supabase:
+            return []
+        try:
+            response = (
+                self.supabase.table("agents")
+                .select("agent_id, name, provider, tier, status")
+                .eq("tenant_id", tenant_id)
+                .execute()
+            )
+            return response.data if response.data else []
+        except Exception as e:
+            logger.error("Failed to list agents for tenant %s: %s", tenant_id, e)
+            return []

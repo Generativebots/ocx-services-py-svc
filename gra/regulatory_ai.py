@@ -376,9 +376,9 @@ class RegulatoryAIService:
             "risk_score": classification.risk_score,
             "ai_suggestion": classification.suggestion,
             "next_steps": classification.next_steps,
-            "assessed_at": datetime.utcnow().isoformat(),
+            "assessed_at": datetime.now(timezone.utc).isoformat(),
             "assessment_hash": hashlib.sha256(
-                f"{tenant_id}:{agent_id}:{action_type}:{datetime.utcnow().isoformat()}".encode()
+                f"{tenant_id}:{agent_id}:{action_type}:{datetime.now(timezone.utc).isoformat()}".encode()
             ).hexdigest()[:16],
         }
 

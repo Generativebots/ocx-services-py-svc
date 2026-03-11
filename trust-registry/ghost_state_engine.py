@@ -87,7 +87,7 @@ class GhostStateEngine:
         simulator = self.state_simulators.get(tool_name)
         if not simulator:
             # No simulator → fail-open (allow but log warning)
-            print(f"⚠️  No simulator for tool: {tool_name}")
+            logger.warning("No simulator for tool: %s", tool_name)
             return True, None, None
         
         # Create Ghost State

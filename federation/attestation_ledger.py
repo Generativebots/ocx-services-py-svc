@@ -98,7 +98,7 @@ class PostgreSQLLedgerBackend(LedgerBackend):
             return {
                 'verified': True,
                 'trust_level': 0.85,
-                'timestamp': datetime.utcnow()
+                'timestamp': datetime.now(timezone.utc)
             }
         
         query = """
@@ -177,7 +177,7 @@ class TrustAttestationLedger:
             'agent_id': agent_id,
             'trust_score': audit_result.get('trust_score', 0.0),
             'verdict': audit_result.get('verdict', 'UNKNOWN'),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
         audit_hash = hashlib.sha256(json.dumps(audit_data, sort_keys=True).encode()).hexdigest()
         
@@ -190,10 +190,10 @@ class TrustAttestationLedger:
             'audit_hash': audit_hash,
             'trust_level': audit_result.get('trust_score', 0.0),
             'signature': '',  # Would be SPIFFE signature in production
-            'expires_at': datetime.utcnow() + timedelta(hours=24),
+            'expires_at': datetime.now(timezone.utc) + timedelta(hours=24),
             'metadata': {
                 'verdict': audit_result.get('verdict', 'UNKNOWN'),
-                'published_at': datetime.utcnow().isoformat()
+                'published_at': datetime.now(timezone.utc).isoformat()
             }
         }
         

@@ -133,7 +133,7 @@ class ContextVectorCheckpointer:
             context_text=context_text,
             vector=vector,
             vector_hash=vector_hash,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
         # Periodic GC before storing
@@ -142,7 +142,7 @@ class ContextVectorCheckpointer:
         # Store in chain
         if chain_id not in self._chains:
             self._chains[chain_id] = []
-            self._chain_created[chain_id] = datetime.utcnow().timestamp()
+            self._chain_created[chain_id] = datetime.now(timezone.utc).timestamp()
         self._chains[chain_id].append(cp)
 
         # If this is the first hop, nothing to compare

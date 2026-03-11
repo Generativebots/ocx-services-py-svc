@@ -107,7 +107,7 @@ class SupabaseClient(SupabaseRetryMixin):
     
     def get_success_count(self, agent_id: str, hours: int = 24) -> int:
         """Get successful transaction count for an agent"""
-        cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
         response = (
             self.client.table("reputation_audit")
             .select("audit_id", count="exact")

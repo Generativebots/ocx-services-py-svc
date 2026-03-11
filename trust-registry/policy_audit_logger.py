@@ -62,7 +62,7 @@ class PolicyAuditLogger:
                 "action": action,
                 "data_payload": json.dumps(data_payload),
                 "evaluation_time_ms": evaluation_time_ms,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }).execute()
         except Exception as e:
             logger.error(f"Failed to log policy evaluation: {e}")
@@ -98,7 +98,7 @@ class PolicyAuditLogger:
                 "avg_confidence": avg_confidence,
                 "model_used": model_used,
                 "extraction_time_ms": extraction_time_ms,
-                "extracted_at": datetime.utcnow().isoformat(),
+                "extracted_at": datetime.now(timezone.utc).isoformat(),
             }).execute()
         except Exception as e:
             logger.error(f"Failed to log policy extraction: {e}")
@@ -201,7 +201,7 @@ class PolicyAuditLogger:
                 "violation_rate": violation_rate,
                 "top_violated_policies": json.dumps(top_policies),
                 "top_violating_agents": json.dumps(top_agents),
-                "generated_at": datetime.utcnow().isoformat(),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
             }).execute()
         except Exception as e:
             logger.error(f"Failed to generate compliance report: {e}")

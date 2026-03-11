@@ -519,7 +519,7 @@ async def verify_evidence(evidence_id: str, tenant_id: str, conn = Depends(get_d
         "evidence_id": evidence_id,
         "verified": len(verification_errors) == 0,
         "verification_errors": verification_errors,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 @app.get("/api/v1/evidence/{evidence_id}/chain")
@@ -738,7 +738,7 @@ async def health(conn = Depends(get_db)) -> dict:
         "service": "evidence-vault",
         "database": "healthy" if db_healthy else "unhealthy",
         "elasticsearch": "healthy" if es_healthy else "unavailable (PG-only mode)",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 if __name__ == "__main__":

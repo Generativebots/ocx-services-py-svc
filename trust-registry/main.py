@@ -1,6 +1,7 @@
 import os
 import uuid
 import json
+import time
 import logging
 from typing import Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Request
@@ -101,7 +102,7 @@ async def evaluate_intent(req: EvaluationRequest, request: Request = None) -> No
     # Fetch Dynamic Rules
     # 1. ORCHESTRATION (The Governor)
     # Fetch Dynamic Rules
-    active_rules = registry.get_active_rules()
+    active_rules = registry.get_active_rules(req.tenant_id)
     rules_context = STATIC_RULES + "\n\nACTIVE DYNAMIC RULES:\n" + json.dumps(active_rules, indent=2)
     
     # Prepare Agent Metadata
@@ -116,22 +117,24 @@ async def evaluate_intent(req: EvaluationRequest, request: Request = None) -> No
     ghost_result = None
     try:
         current_state = StateSnapshot(
-            agent_states={req.agent_id: {"action": req.proposed_action}},
-            trust_scores={req.agent_id: 0.5},  # default; will be refined by jury
-            entitlements={req.agent_id: [f"{req.proposed_action}:execute"]},
+            agent_balance=0.5,  # Default agent balance; refined by jury
+            account_balances={req.agent_id: 0.5},
+            data_locations={},
+            pending_approvals={},
+            timestamp=time.time(),
         )
         # Only evaluate if we have a policy_logic rule registered
         policy_logic = {">": [{"var": f"trust_scores.{req.agent_id}"}, 0.3]}
-        ghost_result = ghost_engine.evaluate_with_ghost_state(
+        ghost_allowed, ghost_state, ghost_reason = ghost_engine.evaluate_with_ghost_state(
             current_state=current_state,
             tool_name=req.proposed_action,
             tool_args=req.context,
             policy_logic=policy_logic,
         )
-        if ghost_result and not ghost_result.get("policy_passed", True):
+        if not ghost_allowed:
             logger.warning(
                 "👻 Ghost State blocked %s: %s",
-                req.agent_id, ghost_result.get("violations", []),
+                req.agent_id, ghost_reason,
             )
     except Exception as e:
         logger.warning("⚠️ Ghost state evaluation failed (non-blocking): %s", e)

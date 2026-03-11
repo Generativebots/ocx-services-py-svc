@@ -96,8 +96,8 @@ class TrustTaxEngine:
         
         # 2. Create transaction record
         transaction_id = str(uuid.uuid4())
-        billing_month = datetime.utcnow().strftime('%Y-%m')
-        now = datetime.utcnow().isoformat()
+        billing_month = datetime.now(timezone.utc).strftime('%Y-%m')
+        now = datetime.now(timezone.utc).isoformat()
         
         transaction = {
             'tenant_id': self.tenant_id,
@@ -240,7 +240,7 @@ class TrustTaxEngine:
         try:
             self.client.table('trust_tax_monthly_bills').update({
                 'paid': True,
-                'paid_at': datetime.utcnow().isoformat(),
+                'paid_at': datetime.now(timezone.utc).isoformat(),
             }).eq('bill_id', bill_id).execute()
             logger.info(f"Bill marked as paid: {bill_id}")
             return True

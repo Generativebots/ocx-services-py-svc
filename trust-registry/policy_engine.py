@@ -139,6 +139,6 @@ def eject_agent_endpoint(agent_id: str, req: dict) -> dict:
         
     success = registry.eject_agent(agent_id, tenant_id)
     if success:
-        return {"status": "EJECTED", "agent_id": agent_id, "timestamp": datetime.datetime.now().isoformat()}
+        return {"status": "EJECTED", "agent_id": agent_id, "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     else:
         raise HTTPException(status_code=500, detail="Failed to eject agent")

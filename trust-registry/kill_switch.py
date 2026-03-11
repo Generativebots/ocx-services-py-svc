@@ -141,7 +141,7 @@ class KillSwitch:
     def _dispatch_block_event(self, payload: Dict[str, Any]) -> Optional[str]:
         """Dispatch kill-switch event to the Go backend SSE/event bus."""
         try:
-            event_id = f"ks-{payload['block_agent'][:8]}-{int(datetime.datetime.now().timestamp())}"
+            event_id = f"ks-{payload['block_agent'][:8]}-{int(datetime.datetime.now(datetime.timezone.utc).timestamp())}"
             resp = self._session.post(
                 f"{self.backend_url}/api/v1/events/kill-switch",
                 json={**payload, "event_id": event_id},

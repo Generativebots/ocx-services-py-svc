@@ -139,7 +139,7 @@ class JuryVerifier:
             "agent_id": agent_id,
             "vote": vote,
             "score": score,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     
     def _calculate_validity_score(self, evidence: EvidenceRecord) -> float:
@@ -207,7 +207,7 @@ class EntropyVerifier:
         self.decision_history.append({
             'outcome': evidence.outcome,
             'decision': evidence.decision,
-            'timestamp': datetime.utcnow()
+            'timestamp': datetime.now(timezone.utc)
         })
         
         # Keep only recent history
@@ -554,7 +554,7 @@ class ParallelAuditor:
             "approvals": approvals,
             "total_verifiers": 3,
             "confidence": avg_confidence,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     
     async def batch_audit(self, evidence_ids: List[str]) -> List[Dict]:
@@ -579,7 +579,7 @@ class ContinuousAuditingService:
         # Server-level default — per-tenant overrides loaded at request time
         self.poll_interval = poll_interval if poll_interval is not None else 60
         self.auditor = ParallelAuditor()
-        self.last_audit_time = datetime.utcnow()
+        self.last_audit_time = datetime.now(timezone.utc)
         self.running = False
     
     async def start(self) -> None:
@@ -620,7 +620,7 @@ class ContinuousAuditingService:
             results = await self.auditor.batch_audit(evidence_ids)
             logger.info(f"Audited batch of {len(results)} evidence records")
         
-        self.last_audit_time = datetime.utcnow()
+        self.last_audit_time = datetime.now(timezone.utc)
     
     async def _fetch_unverified_evidence(self) -> List[Dict]:
         """Fetch unverified evidence from Evidence Vault"""

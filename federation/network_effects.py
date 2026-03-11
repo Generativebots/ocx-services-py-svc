@@ -31,7 +31,7 @@ class OCXRelationship:
         self.relationship_id = str(uuid.uuid4())
         self.instance1_id = instance1_id
         self.instance2_id = instance2_id
-        self.established_at = datetime.utcnow()
+        self.established_at = datetime.now(timezone.utc)
         self.total_interactions = 0
         self.successful_interactions = 0
         self.failed_interactions = 0
@@ -54,7 +54,7 @@ class OCXRelationship:
         alpha = 0.2  # Smoothing factor
         self.avg_trust_level = (alpha * trust_level) + ((1 - alpha) * self.avg_trust_level)
         
-        self.last_interaction_at = datetime.utcnow()
+        self.last_interaction_at = datetime.now(timezone.utc)
     
     def to_dict(self) -> Dict:
         return {
@@ -77,7 +77,7 @@ class NetworkMetrics:
     """Network-wide metrics"""
     
     def __init__(self) -> None:
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(timezone.utc)
         self.total_instances = 0
         self.active_instances = 0
         self.total_relationships = 0
@@ -123,7 +123,7 @@ class NetworkEffectsTracker:
         self.relationships: Dict[str, OCXRelationship] = {}
         self.metrics_history: List[NetworkMetrics] = []
         self.current_metrics = NetworkMetrics()
-        self.started_at = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
     
     def register_instance(self, instance_id: str, organization: str, region: str) -> bool:
         """Register a new OCX instance in the network"""
@@ -134,7 +134,7 @@ class NetworkEffectsTracker:
             'instance_id': instance_id,
             'organization': organization,
             'region': region,
-            'joined_at': datetime.utcnow(),
+            'joined_at': datetime.now(timezone.utc),
             'active': True,
             'total_relationships': 0,
             'total_interactions': 0,
@@ -220,7 +220,7 @@ class NetworkEffectsTracker:
         # Calculate growth rate
         if len(self.metrics_history) > 0:
             prev_metrics = self.metrics_history[-1]
-            time_delta = (datetime.utcnow() - prev_metrics.timestamp).total_seconds() / 86400  # days
+            time_delta = (datetime.now(timezone.utc) - prev_metrics.timestamp).total_seconds() / 86400  # days
             if time_delta > 0:
                 instance_growth = active_instances - prev_metrics.active_instances
                 growth_rate = (instance_growth / time_delta) if prev_metrics.active_instances > 0 else 0
@@ -238,7 +238,7 @@ class NetworkEffectsTracker:
             current_phase = NetworkPhase.GLOBAL
         
         # Update current metrics
-        self.current_metrics.timestamp = datetime.utcnow()
+        self.current_metrics.timestamp = datetime.now(timezone.utc)
         self.current_metrics.total_instances = len(self.instances)
         self.current_metrics.active_instances = active_instances
         self.current_metrics.total_relationships = len(self.relationships)

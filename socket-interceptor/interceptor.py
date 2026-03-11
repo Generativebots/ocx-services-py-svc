@@ -285,7 +285,7 @@ class SocketInterceptor:
                     operation="connect",
                     destination=address,
                     data=None,
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     agent_id=interceptor.agent_id,
                     tenant_id=interceptor.tenant_id
                 )

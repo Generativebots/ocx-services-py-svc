@@ -122,7 +122,7 @@ class WeightedTrustCalculator:
                 },
             },
             'metadata': {
-                'calculated_at': datetime.utcnow().isoformat(),
+                'calculated_at': datetime.now(timezone.utc).isoformat(),
                 'formula': '0.40×audit + 0.30×reputation + 0.20×attestation + 0.10×history',
             }
         }
@@ -200,7 +200,7 @@ class WeightedTrustCalculator:
             Attestation score (0.0 - 1.0)
         """
         # Check expiration
-        if expires_at and datetime.utcnow() > expires_at:
+        if expires_at and datetime.now(timezone.utc) > expires_at:
             return 0.0
         
         # Score based on freshness
@@ -350,7 +350,7 @@ if __name__ == "__main__":
     
     attestation_score = calculator.calculate_attestation_score(
         attestation_age_hours=2.5,
-        expires_at=datetime.utcnow()
+        expires_at=datetime.now(timezone.utc)
     )
     
     history_score = calculator.calculate_history_score(

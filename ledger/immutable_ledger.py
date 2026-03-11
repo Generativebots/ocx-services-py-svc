@@ -89,7 +89,7 @@ class ImmutableGovernanceLedger:
         
         # Create ledger entry (tenant_id is part of the hash chain)
         entry = {
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'tenant_id': tenant_id,
             'transaction_id': event.get('transaction_id'),
             'agent_id': event.get('agent_id'),

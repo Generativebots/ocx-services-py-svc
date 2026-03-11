@@ -154,7 +154,7 @@ class SlackShadowSOPObserver:
             shadow_sop: Shadow SOP data
         """
         shadow_sop['status'] = 'pending'
-        shadow_sop['discovered_at'] = __import__('datetime').datetime.utcnow().isoformat()
+        shadow_sop['discovered_at'] = __import__('datetime').datetime.now(timezone.utc).isoformat()
         
         self.discovered_sops.append(shadow_sop)
         
@@ -190,7 +190,7 @@ class SlackShadowSOPObserver:
         shadow_sop = self.discovered_sops[sop_id]
         shadow_sop['status'] = 'approved'
         shadow_sop['reviewed_by'] = reviewed_by
-        shadow_sop['reviewed_at'] = __import__('datetime').datetime.utcnow().isoformat()
+        shadow_sop['reviewed_at'] = __import__('datetime').datetime.now(timezone.utc).isoformat()
         
         # In production, this would:
         # 1. Add to APE Engine as official policy
@@ -224,7 +224,7 @@ class SlackShadowSOPObserver:
         shadow_sop['status'] = 'rejected'
         shadow_sop['reviewed_by'] = reviewed_by
         shadow_sop['rejection_reason'] = reason
-        shadow_sop['reviewed_at'] = __import__('datetime').datetime.utcnow().isoformat()
+        shadow_sop['reviewed_at'] = __import__('datetime').datetime.now(timezone.utc).isoformat()
         
         logger.info(f"Rejected shadow SOP: {shadow_sop['rule']}")
         

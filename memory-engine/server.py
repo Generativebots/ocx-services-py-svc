@@ -20,7 +20,7 @@ def record_agent_memory(agent_id: str, insight: str, outcome: str, tags: list[st
     Use this to store 'Lessons Learned' or 'Repeated Errors'.
     """
     entry = {
-        "timestamp": datetime.datetime.utcnow().isoformat(),
+        "timestamp": datetime.datetime.now(timezone.utc).isoformat(),
         "agent_id": agent_id,
         "insight": insight,
         "outcome": outcome, # e.g., "SUCCESS", "BLOCKED", "HALLUCINATION"

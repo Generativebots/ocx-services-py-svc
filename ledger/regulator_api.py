@@ -203,7 +203,7 @@ def verify_chain(
     
     return ChainVerifyResponse(
         chain_valid=is_valid,
-        verified_at=__import__('datetime').datetime.utcnow().isoformat(),
+        verified_at=__import__('datetime').datetime.now(timezone.utc).isoformat(),
         verified_by=regulator['name']
     )
 
@@ -239,7 +239,7 @@ def generate_api_key(
     REGULATOR_API_KEYS[api_key] = {
         'name': regulator_name,
         'organization': regulator_org,
-        'created_at': __import__('datetime').datetime.utcnow().isoformat()
+        'created_at': __import__('datetime').datetime.now(timezone.utc).isoformat()
     }
     
     logger.info(f"Generated API key for regulator: {regulator_name} ({regulator_org})")

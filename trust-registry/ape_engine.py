@@ -26,7 +26,7 @@ class VLLMClient:
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
                 payload = {
-                    "model": "mistralai/Mistral-7B-Instruct-v0.2",
+                    "model": os.getenv("VLLM_MODEL", "mistralai/Mistral-7B-Instruct-v0.2"),
                     "messages": [
                         {"role": "system", "content": "You are the APE (Agentic Policy Extractor). Extract logic gates from the SOP. Return ONLY a JSON array."},
                         {"role": "user", "content": f"{prompt}\n\nSchema: {json.dumps(schema)}"}
