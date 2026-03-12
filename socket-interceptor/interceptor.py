@@ -11,7 +11,7 @@ import threading
 import time
 from typing import Dict, Any, Optional, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 import logging
 

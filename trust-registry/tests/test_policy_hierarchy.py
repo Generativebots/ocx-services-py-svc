@@ -140,7 +140,6 @@ class TestPolicyHierarchyEdgeCases:
 
     def test_wildcard_trigger_matches_any_intent(self):
         """Policy with trigger_intent='*' matches any intent (L102)."""
-        from policy_hierarchy import Policy, PolicyTier, PolicyHierarchy
 
         hierarchy = PolicyHierarchy()
         p = Policy(
@@ -159,7 +158,6 @@ class TestPolicyHierarchyEdgeCases:
 
     def test_contextual_role_mismatch_filtered(self):
         """CONTEXTUAL policy with wrong role is filtered out (L106-107)."""
-        from policy_hierarchy import Policy, PolicyTier, PolicyHierarchy
 
         hierarchy = PolicyHierarchy()
         p = Policy(
@@ -178,7 +176,6 @@ class TestPolicyHierarchyEdgeCases:
         assert len(applicable) == 0
 
     def test_contextual_role_match_included(self):
-        from policy_hierarchy import Policy, PolicyTier, PolicyHierarchy
 
         hierarchy = PolicyHierarchy()
         p = Policy(
@@ -198,8 +195,6 @@ class TestPolicyHierarchyEdgeCases:
 
     def test_expired_policy_filtered(self):
         """Expired DYNAMIC policy is excluded from applicable (L98-99)."""
-        from policy_hierarchy import Policy, PolicyTier, PolicyHierarchy
-        from datetime import datetime, timedelta, timezone
 
         hierarchy = PolicyHierarchy()
         p = Policy(
@@ -219,7 +214,6 @@ class TestPolicyHierarchyEdgeCases:
 
     def test_intent_mismatch_filtered(self):
         """Policy with different trigger_intent excluded (L102-103)."""
-        from policy_hierarchy import Policy, PolicyTier, PolicyHierarchy
 
         hierarchy = PolicyHierarchy()
         p = Policy(

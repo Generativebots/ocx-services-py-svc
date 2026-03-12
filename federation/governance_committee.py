@@ -10,8 +10,8 @@ Total: 28 votes, requiring 75% supermajority (21 votes) for protocol changes.
 """
 
 import uuid
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 from enum import Enum
 import logging
 logger = logging.getLogger(__name__)

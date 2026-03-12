@@ -11,7 +11,7 @@ Provides unified API for trust calculation across the OCX platform.
 """
 
 from typing import Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 logger = logging.getLogger(__name__)
 

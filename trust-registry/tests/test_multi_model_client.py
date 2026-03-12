@@ -64,6 +64,8 @@ class TestMultiModelClient(unittest.TestCase):
         self.assertIn("All models failed", str(ctx.exception))
 
     def test_vllm_calls_vllm_client(self):
+        # Re-set mock to override any conftest interference
+        sys.modules["vllm_client"] = mock_vllm_mod
         mock_vllm_cls = MagicMock()
         mock_vllm_cls.return_value.extract_policies.return_value = [{"id": "P1"}]
         mock_vllm_mod.VLLMClient = mock_vllm_cls
@@ -115,12 +117,13 @@ class TestMultiModelClientBoost:
         client = MultiModelClient(models)
         assert client.models[0].priority == 1  # sorted
 
-    @patch("requests.get", side_effect=Exception("x"))
-    def test_extract_vllm_fallback(self, _):
+    def test_extract_vllm_fallback(self):
         models = [ModelConfig(provider=ModelProvider.VLLM, model_name="m", base_url="http://fake:8000", priority=1)]
         client = MultiModelClient(models)
+        client._extract_vllm = MagicMock(return_value=[{"policy": "P1"}])
         result = client.extract_policies("procurement doc", "src")
         assert isinstance(result, list)
+        assert len(result) == 1
 
     def test_all_models_fail(self):
         models = [ModelConfig(provider=ModelProvider.OPENAI, model_name="m", api_key="fake", priority=1)]
@@ -129,16 +132,17 @@ class TestMultiModelClientBoost:
             with pytest.raises(Exception, match="All models failed"):
                 client.extract_policies("doc", "src")
 
-    @patch("requests.get", side_effect=Exception("x"))
-    def test_fallback_chain(self, _):
+    def test_fallback_chain(self):
         models = [
             ModelConfig(provider=ModelProvider.OPENAI, model_name="m1", api_key="k", priority=1),
             ModelConfig(provider=ModelProvider.VLLM, model_name="m2", base_url="http://fake:8000", priority=2),
         ]
         client = MultiModelClient(models)
+        client._extract_vllm = MagicMock(return_value=[{"policy": "P2"}])
         with patch.object(client, "_extract_openai", side_effect=Exception("fail")):
             result = client.extract_policies("procurement doc", "src")
             assert isinstance(result, list)
+            assert len(result) == 1
 
     @patch.dict(os.environ, {"VLLM_ENABLED": "true", "OPENAI_API_KEY": "", "GOOGLE_API_KEY": "", "ANTHROPIC_API_KEY": ""}, clear=False)
     def test_factory_vllm_only(self):

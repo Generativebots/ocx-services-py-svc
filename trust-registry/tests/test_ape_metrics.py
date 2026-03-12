@@ -227,16 +227,24 @@ class TestApeMetricsTrackGhostState:
 class TestApeMetricsMainBlock:
     def test_main_executes(self):
         src = open(os.path.join(os.path.dirname(__file__), "..", "ape_metrics.py")).read()
-        fake_threading = types.ModuleType("threading")
-        evt = MagicMock()
-        evt.wait = MagicMock(side_effect=KeyboardInterrupt)
-        fake_threading.Event = MagicMock(return_value=evt)
-        g = {"__name__": "__main__", "threading": fake_threading}
-        with patch("prometheus_client.start_http_server"):
-            try:
-                exec(src, g)
-            except KeyboardInterrupt:
-                pass
+        # Patch the real threading and time modules so exec doesn't block
+        import threading as _threading
+        original_event = _threading.Event
+        original_sleep = time.sleep
+        # Replace Event().wait with a no-op and time.sleep with a no-op
+        mock_evt = MagicMock()
+        mock_evt.wait = MagicMock(side_effect=KeyboardInterrupt)
+        _threading.Event = MagicMock(return_value=mock_evt)
+        time.sleep = MagicMock()
+        try:
+            with patch("prometheus_client.start_http_server"):
+                try:
+                    exec(compile(src, "ape_metrics.py", "exec"), {"__name__": "__main__"})
+                except KeyboardInterrupt:
+                    pass
+        finally:
+            _threading.Event = original_event
+            time.sleep = original_sleep
 
 
 # ──────────────────────── config/settings.py ──────────────────────────────

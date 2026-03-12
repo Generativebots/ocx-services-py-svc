@@ -15,6 +15,7 @@ _fake_grpc = types.ModuleType("grpc")
 _fake_grpc.StatusCode = type("StatusCode", (), {
     "NOT_FOUND": "NOT_FOUND",
     "FAILED_PRECONDITION": "FAILED_PRECONDITION",
+    "INVALID_ARGUMENT": "INVALID_ARGUMENT",
 })()
 sys.modules["grpc"] = _fake_grpc
 

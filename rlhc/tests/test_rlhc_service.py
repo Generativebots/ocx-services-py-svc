@@ -237,13 +237,14 @@ class TestGovernanceConfig:
 # ===========================================================================
 
 import unittest
-from rlhc.rlhc_server import RLHCServiceImpl
+from rlhc.rlhc_server import RLHCServiceImpl, _pattern_store
 
 
 class TestClusterDecisionsGRPC(unittest.TestCase):
     def setUp(self):
         self.svc = RLHCServiceImpl()
         self.ctx = mock.MagicMock()
+        _pattern_store.clear()
 
     def test_empty_decisions(self):
         request = {
@@ -254,7 +255,7 @@ class TestClusterDecisionsGRPC(unittest.TestCase):
             "min_confidence": 0.6,
         }
         resp = self.svc.ClusterDecisions(request, self.ctx)
-        self.assertIsNotNone(resp)
+        self.assertEqual(resp["total_decisions"], 0)
 
     def test_with_dict_decisions(self):
         request = {
@@ -275,37 +276,217 @@ class TestClusterDecisionsGRPC(unittest.TestCase):
             "min_confidence": 0.5,
         }
         resp = self.svc.ClusterDecisions(request, self.ctx)
-        self.assertIsNotNone(resp)
+        self.assertEqual(resp["total_decisions"], 1)
 
     def test_auto_analysis_id(self):
-        request = {
-            "tenant_id": "t1",
-            "decisions": [],
-        }
+        request = {"tenant_id": "t1", "decisions": []}
         resp = self.svc.ClusterDecisions(request, self.ctx)
-        self.assertIsNotNone(resp)
+        self.assertTrue(resp["analysis_id"].startswith("rlhc-"))
+
+    def test_proto_attr_style_decisions(self):
+        """Cover the proto-attribute branch (getattr instead of dict.get)."""
+        proto_decision = mock.MagicMock()
+        proto_decision.decision_id = "pd-1"
+        proto_decision.agent_id = "pa"
+        proto_decision.tool_name = "pt"
+        proto_decision.original_verdict = "ALLOW"
+        proto_decision.override_action = "BLOCK_OVERRIDE"
+        proto_decision.reason = "reason"
+        proto_decision.trust_score = 0.5
+
+        proto_req = mock.MagicMock(spec=[])  # no dict interface
+        proto_req.analysis_id = "proto-run"
+        proto_req.tenant_id = "t1"
+        proto_req.decisions = [proto_decision]
+        proto_req.min_frequency = 1
+        proto_req.min_confidence = 0.5
+
+        resp = self.svc.ClusterDecisions(proto_req, self.ctx)
+        self.assertEqual(resp["total_decisions"], 1)
+
+    def test_patterns_stored_after_cluster(self):
+        """ClusterDecisions stores discovered patterns in _pattern_store."""
+        decisions = [
+            {"decision_id": f"d{i}", "agent_id": "a", "tool_name": "t",
+             "original_verdict": "ALLOW", "override_action": "BLOCK_OVERRIDE",
+             "reason": "", "trust_score": 0.5}
+            for i in range(5)
+        ]
+        self.svc.ClusterDecisions({"analysis_id": "s1", "tenant_id": "t1",
+                                   "decisions": decisions, "min_frequency": 2,
+                                   "min_confidence": 0.3}, self.ctx)
+        self.assertGreater(len(_pattern_store), 0)
 
 
 class TestGetPatternsGRPC(unittest.TestCase):
     def setUp(self):
         self.svc = RLHCServiceImpl()
         self.ctx = mock.MagicMock()
+        _pattern_store.clear()
 
     def test_get_empty_patterns(self):
-        if hasattr(self.svc, "GetPatterns"):
-            request = {"tenant_id": "t1"}
-            resp = self.svc.GetPatterns(request, self.ctx)
-            self.assertIsNotNone(resp)
+        resp = self.svc.GetPatterns({}, self.ctx)
+        self.assertEqual(resp["patterns"], [])
+
+    def test_get_all_and_filtered(self):
+        # Populate store via ClusterDecisions
+        decisions = [
+            {"decision_id": f"d{i}", "agent_id": "a", "tool_name": "t",
+             "original_verdict": "ALLOW", "override_action": "BLOCK_OVERRIDE",
+             "reason": "", "trust_score": 0.5}
+            for i in range(5)
+        ]
+        self.svc.ClusterDecisions({"analysis_id": "s1", "tenant_id": "t1",
+                                   "decisions": decisions, "min_frequency": 2,
+                                   "min_confidence": 0.3}, self.ctx)
+        # All patterns (PENDING by default)
+        all_resp = self.svc.GetPatterns({}, self.ctx)
+        self.assertGreater(len(all_resp["patterns"]), 0)
+        # Filter by status
+        filtered = self.svc.GetPatterns({"status_filter": "APPROVED"}, self.ctx)
+        self.assertEqual(len(filtered["patterns"]), 0)
+
+    def test_proto_attr_request(self):
+        proto_req = mock.MagicMock(spec=[])
+        proto_req.status_filter = ""
+        resp = self.svc.GetPatterns(proto_req, self.ctx)
+        self.assertIn("patterns", resp)
 
 
 class TestUpdatePatternStatusGRPC(unittest.TestCase):
     def setUp(self):
         self.svc = RLHCServiceImpl()
         self.ctx = mock.MagicMock()
+        _pattern_store.clear()
 
     def test_update_nonexistent(self):
-        if hasattr(self.svc, "UpdatePatternStatus"):
-            request = {"pattern_id": "nonexistent", "status": "APPROVED"}
-            resp = self.svc.UpdatePatternStatus(request, self.ctx)
-            self.assertIsNotNone(resp)
+        resp = self.svc.UpdatePatternStatus({"pattern_id": "x", "status": "APPROVED"}, self.ctx)
+        self.assertFalse(resp["success"])
+
+    def test_invalid_status(self):
+        # Add a pattern first
+        decisions = [
+            {"decision_id": f"d{i}", "agent_id": "a", "tool_name": "t",
+             "original_verdict": "ALLOW", "override_action": "BLOCK_OVERRIDE",
+             "reason": "", "trust_score": 0.5}
+            for i in range(5)
+        ]
+        self.svc.ClusterDecisions({"analysis_id": "s1", "tenant_id": "t1",
+                                   "decisions": decisions, "min_frequency": 2,
+                                   "min_confidence": 0.3}, self.ctx)
+        if _pattern_store:
+            pid = list(_pattern_store.keys())[0]
+            resp = self.svc.UpdatePatternStatus({"pattern_id": pid, "status": "INVALID"}, self.ctx)
+            self.assertFalse(resp["success"])
+
+    def test_approve_pattern(self):
+        decisions = [
+            {"decision_id": f"d{i}", "agent_id": "a", "tool_name": "t",
+             "original_verdict": "ALLOW", "override_action": "BLOCK_OVERRIDE",
+             "reason": "", "trust_score": 0.5}
+            for i in range(5)
+        ]
+        self.svc.ClusterDecisions({"analysis_id": "s1", "tenant_id": "t1",
+                                   "decisions": decisions, "min_frequency": 2,
+                                   "min_confidence": 0.3}, self.ctx)
+        if _pattern_store:
+            pid = list(_pattern_store.keys())[0]
+            resp = self.svc.UpdatePatternStatus({"pattern_id": pid, "status": "APPROVED"}, self.ctx)
+            self.assertTrue(resp["success"])
+            self.assertEqual(_pattern_store[pid].status, "APPROVED")
+
+    def test_proto_attr_request(self):
+        proto_req = mock.MagicMock(spec=[])
+        proto_req.pattern_id = "nonexistent"
+        proto_req.status = "REJECTED"
+        resp = self.svc.UpdatePatternStatus(proto_req, self.ctx)
+        self.assertFalse(resp["success"])
+
+
+# ===========================================================================
+# HTTP Handler Tests
+# ===========================================================================
+import io
+from rlhc.rlhc_server import RLHCHTTPHandler
+
+
+class _FakeWfile(io.BytesIO):
+    """Writable buffer that works like a socket wfile."""
+    pass
+
+
+def _make_handler(method, path, body=None):
+    """Create a handler with a mock request."""
+    handler = object.__new__(RLHCHTTPHandler)
+    handler.command = method
+    handler.path = path
+    handler.request_version = "HTTP/1.1"
+    handler.headers = {"Content-Length": str(len(body)) if body else "0"}
+    handler.rfile = io.BytesIO(body if body else b"")
+    handler.wfile = _FakeWfile()
+    handler.requestline = f"{method} {path} HTTP/1.1"
+    handler.close_connection = True
+    handler.client_address = ("127.0.0.1", 12345)
+    handler._headers_buffer = []
+
+    # Capture responses
+    handler._resp_code = None
+    handler._resp_body = None
+    def _send_response(code, msg=None):
+        handler._resp_code = code
+    handler.send_response = _send_response
+    handler.send_header = lambda k, v: None
+    handler.end_headers = lambda: None
+    def _send_error(code, msg=None):
+        handler._resp_code = code
+    handler.send_error = _send_error
+    return handler
+
+
+class TestHTTPHandler:
+    def test_health_endpoint(self):
+        h = _make_handler("GET", "/health")
+        h.do_GET()
+        assert h._resp_code == 200
+
+    def test_get_patterns(self):
+        h = _make_handler("GET", "/patterns")
+        h.do_GET()
+        assert h._resp_code == 200
+
+    def test_get_404(self):
+        h = _make_handler("GET", "/unknown")
+        h.do_GET()
+        assert h._resp_code == 404
+
+    def test_post_cluster(self):
+        body = json.dumps({"analysis_id": "t1", "decisions": []}).encode()
+        h = _make_handler("POST", "/cluster", body)
+        h.do_POST()
+        assert h._resp_code == 200
+
+    def test_post_patterns(self):
+        body = json.dumps({}).encode()
+        h = _make_handler("POST", "/patterns", body)
+        h.do_POST()
+        assert h._resp_code == 200
+
+    def test_post_patterns_status(self):
+        body = json.dumps({"pattern_id": "x", "status": "APPROVED"}).encode()
+        h = _make_handler("POST", "/patterns/status", body)
+        h.do_POST()
+        assert h._resp_code == 200
+
+    def test_post_unknown(self):
+        h = _make_handler("POST", "/unknown", b"{}")
+        h.do_POST()
+        assert h._resp_code == 404
+
+    def test_post_invalid_json(self):
+        h = _make_handler("POST", "/cluster", b"not json")
+        h.do_POST()
+        assert h._resp_code == 400
+
+import json
+
 

@@ -20,6 +20,7 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "--tb=short -q"
+asyncio_mode = "strict"
 
 [tool.coverage.run]
 omit = [

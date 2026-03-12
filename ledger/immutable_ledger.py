@@ -11,7 +11,7 @@ Backend: Supabase (PostgreSQL)
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import logging
 

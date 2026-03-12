@@ -47,6 +47,14 @@ sys.modules.setdefault("requests", mock.MagicMock())
 import pytest
 import asyncio
 
+def _run(coro):
+    """Run coroutine synchronously — pytest-asyncio is not installed."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
 from auditor import (
     AttestationStatus,
     EvidenceRecord,
@@ -99,11 +107,10 @@ class TestJuryVerifier:
         assert jv.num_agents == 3
         assert jv.consensus_threshold == 0.8
 
-    @pytest.mark.asyncio
-    async def test_verify_evidence_returns_attestation(self):
+    def test_verify_evidence_returns_attestation(self):
         jv = JuryVerifier(num_agents=3, consensus_threshold=0.5)
         evidence = _make_evidence()
-        result = await jv.verify_evidence(evidence)
+        result = _run(jv.verify_evidence(evidence))
 
         assert result["attestor_type"] == "JURY"
         assert "confidence_score" in result
@@ -145,18 +152,16 @@ class TestJuryVerifier:
         s2 = jv._calculate_validity_score(evidence)
         assert s1 == s2
 
-    @pytest.mark.asyncio
-    async def test_collect_votes(self):
+    def test_collect_votes(self):
         jv = JuryVerifier(num_agents=3)
         evidence = _make_evidence()
-        votes = await jv._collect_votes(evidence)
+        votes = _run(jv._collect_votes(evidence))
         assert len(votes) == 3
 
-    @pytest.mark.asyncio
-    async def test_agent_vote(self):
+    def test_agent_vote(self):
         jv = JuryVerifier()
         evidence = _make_evidence()
-        vote = await jv._agent_vote("agent-0", evidence)
+        vote = _run(jv._agent_vote("agent-0", evidence))
         assert vote["vote"] in ("APPROVE", "REJECT")
         assert "score" in vote
         assert "timestamp" in vote
@@ -174,31 +179,28 @@ class TestEntropyVerifier:
         assert ev.history_window == 100
         assert ev.decision_history == []
 
-    @pytest.mark.asyncio
-    async def test_verify_evidence_single(self):
+    def test_verify_evidence_single(self):
         ev = EntropyVerifier()
         evidence = _make_evidence()
-        result = await ev.verify_evidence(evidence)
+        result = _run(ev.verify_evidence(evidence))
 
         assert result["attestor_type"] == "ENTROPY"
         assert "confidence_score" in result
         assert result["proof"]["sample_size"] == 1
 
-    @pytest.mark.asyncio
-    async def test_history_accumulates(self):
+    def test_history_accumulates(self):
         ev = EntropyVerifier()
         for i in range(5):
             evidence = _make_evidence(evidence_id=f"ev-{i}")
-            await ev.verify_evidence(evidence)
+            _run(ev.verify_evidence(evidence))
         assert len(ev.decision_history) == 5
 
-    @pytest.mark.asyncio
-    async def test_history_window_limit(self):
+    def test_history_window_limit(self):
         ev = EntropyVerifier()
         ev.history_window = 10
         for i in range(20):
             evidence = _make_evidence(evidence_id=f"ev-{i}")
-            await ev.verify_evidence(evidence)
+            _run(ev.verify_evidence(evidence))
         assert len(ev.decision_history) <= 10
 
     def test_calculate_entropy_insufficient_data(self):
@@ -249,22 +251,20 @@ class TestEscrowVerifier:
         ev = EscrowVerifier(escrow_id="custom-escrow")
         assert ev.escrow_id == "custom-escrow"
 
-    @pytest.mark.asyncio
-    async def test_verify_valid_hash(self):
+    def test_verify_valid_hash(self):
         ev = EscrowVerifier()
         evidence = _make_evidence()
-        result = await ev.verify_evidence(evidence)
+        result = _run(ev.verify_evidence(evidence))
 
         assert result["attestor_type"] == "ESCROW"
         assert result["attestation_status"] == AttestationStatus.APPROVED
         assert result["confidence_score"] == 1.0
         assert result["proof"]["hash_valid"] is True
 
-    @pytest.mark.asyncio
-    async def test_verify_invalid_hash(self):
+    def test_verify_invalid_hash(self):
         ev = EscrowVerifier()
         evidence = _make_evidence(matching_hash=False)
-        result = await ev.verify_evidence(evidence)
+        result = _run(ev.verify_evidence(evidence))
 
         assert result["attestation_status"] == AttestationStatus.REJECTED
         assert result["confidence_score"] == 0.0
@@ -422,31 +422,28 @@ async def _async_empty_list():
 class TestParallelAuditorAudit:
     """Tests for audit_evidence, _fetch_evidence, _submit_attestation, batch_audit."""
 
-    @pytest.mark.asyncio
-    async def test_audit_evidence_full_flow(self):
+    def test_audit_evidence_full_flow(self):
         pa = ParallelAuditor()
         evidence = _make_evidence()
         async def mock_fetch(eid): return evidence
         async def mock_submit(eid, att): return {"evidence_id": eid, **att}
         pa._fetch_evidence = mock_fetch
         pa._submit_attestation = mock_submit
-        result = await pa.audit_evidence("ev-001")
+        result = _run(pa.audit_evidence("ev-001"))
         assert result["evidence_id"] == "ev-001"
         assert "verdict" in result
         assert "jury" in result
         assert "entropy" in result
         assert "escrow" in result
 
-    @pytest.mark.asyncio
-    async def test_audit_evidence_not_found(self):
+    def test_audit_evidence_not_found(self):
         pa = ParallelAuditor()
         async def mock_fetch(eid): return None
         pa._fetch_evidence = mock_fetch
         with pytest.raises(ValueError, match="not found"):
-            await pa.audit_evidence("ev-missing")
+            _run(pa.audit_evidence("ev-missing"))
 
-    @pytest.mark.asyncio
-    async def test_fetch_evidence_success(self):
+    def test_fetch_evidence_success(self):
         pa = ParallelAuditor()
         import requests as req_mod
         fake_resp = mock.MagicMock()
@@ -460,46 +457,42 @@ class TestParallelAuditorAudit:
         }
         fake_resp.raise_for_status = mock.MagicMock()
         req_mod.get = mock.MagicMock(return_value=fake_resp)
-        result = await pa._fetch_evidence("ev-001")
+        result = _run(pa._fetch_evidence("ev-001"))
         assert result is not None
         assert result.evidence_id == "ev-001"
 
-    @pytest.mark.asyncio
-    async def test_fetch_evidence_failure(self):
+    def test_fetch_evidence_failure(self):
         pa = ParallelAuditor()
         import requests as req_mod
         req_mod.get = mock.MagicMock(side_effect=Exception("connection error"))
-        result = await pa._fetch_evidence("ev-fail")
+        result = _run(pa._fetch_evidence("ev-fail"))
         assert result is None
 
-    @pytest.mark.asyncio
-    async def test_submit_attestation_success(self):
+    def test_submit_attestation_success(self):
         pa = ParallelAuditor()
         import requests as req_mod
         fake_resp = mock.MagicMock()
         fake_resp.json.return_value = {"id": "att-001", "status": "ok"}
         fake_resp.raise_for_status = mock.MagicMock()
         req_mod.post = mock.MagicMock(return_value=fake_resp)
-        result = await pa._submit_attestation("ev-001", {"score": 0.9})
+        result = _run(pa._submit_attestation("ev-001", {"score": 0.9}))
         assert result["id"] == "att-001"
 
-    @pytest.mark.asyncio
-    async def test_submit_attestation_failure(self):
+    def test_submit_attestation_failure(self):
         pa = ParallelAuditor()
         import requests as req_mod
         req_mod.post = mock.MagicMock(side_effect=Exception("post error"))
-        result = await pa._submit_attestation("ev-001", {"score": 0.9})
+        result = _run(pa._submit_attestation("ev-001", {"score": 0.9}))
         assert result == {}
 
-    @pytest.mark.asyncio
-    async def test_batch_audit(self):
+    def test_batch_audit(self):
         pa = ParallelAuditor()
         evidence = _make_evidence()
         async def mock_fetch(eid): return evidence
         async def mock_submit(eid, att): return {"evidence_id": eid}
         pa._fetch_evidence = mock_fetch
         pa._submit_attestation = mock_submit
-        results = await pa.batch_audit(["ev-001", "ev-002"])
+        results = _run(pa.batch_audit(["ev-001", "ev-002"]))
         assert len(results) >= 1  # Some may succeed
 
 
@@ -510,8 +503,7 @@ class TestParallelAuditorAudit:
 class TestContinuousAuditingServiceMethods:
     """Tests for _audit_cycle and _fetch_unverified_evidence."""
 
-    @pytest.mark.asyncio
-    async def test_audit_cycle_with_data(self):
+    def test_audit_cycle_with_data(self):
         svc = ContinuousAuditingService()
         evidence = _make_evidence()
         async def mock_fetch_unverified():
@@ -521,33 +513,30 @@ class TestContinuousAuditingServiceMethods:
         svc._fetch_unverified_evidence = mock_fetch_unverified
         svc.auditor._fetch_evidence = mock_fetch
         svc.auditor._submit_attestation = mock_submit
-        await svc._audit_cycle()
+        _run(svc._audit_cycle())
         assert svc.last_audit_time is not None
 
-    @pytest.mark.asyncio
-    async def test_audit_cycle_empty(self):
+    def test_audit_cycle_empty(self):
         svc = ContinuousAuditingService()
         async def mock_fetch_unverified(): return []
         svc._fetch_unverified_evidence = mock_fetch_unverified
-        await svc._audit_cycle()
+        _run(svc._audit_cycle())
 
-    @pytest.mark.asyncio
-    async def test_fetch_unverified_success(self):
+    def test_fetch_unverified_success(self):
         svc = ContinuousAuditingService()
         import requests as req_mod
         fake_resp = mock.MagicMock()
         fake_resp.json.return_value = [{"evidence_id": "ev-001"}]
         fake_resp.raise_for_status = mock.MagicMock()
         req_mod.get = mock.MagicMock(return_value=fake_resp)
-        result = await svc._fetch_unverified_evidence()
+        result = _run(svc._fetch_unverified_evidence())
         assert len(result) == 1
 
-    @pytest.mark.asyncio
-    async def test_fetch_unverified_error(self):
+    def test_fetch_unverified_error(self):
         svc = ContinuousAuditingService()
         import requests as req_mod
         req_mod.get = mock.MagicMock(side_effect=Exception("timeout"))
-        result = await svc._fetch_unverified_evidence()
+        result = _run(svc._fetch_unverified_evidence())
         assert result == []
 
 
@@ -558,15 +547,14 @@ class TestContinuousAuditingServiceMethods:
 class TestJuryVerifierConsensusPaths:
     """Cover lines 112-117: rejection consensus + disputed paths."""
 
-    @pytest.mark.asyncio
-    async def test_jury_rejects_on_consensus_reject(self):
+    def test_jury_rejects_on_consensus_reject(self):
         jv = JuryVerifier(num_agents=3, consensus_threshold=0.5)
         evidence = _make_evidence(matching_hash=False)
         evidence.decision = None
         evidence.outcome = None
         evidence.policy_reference = ""
         # With bad hash + no decision/outcome/policy → low validity → reject votes
-        result = await jv.verify_evidence(evidence)
+        result = _run(jv.verify_evidence(evidence))
         assert result["attestation_status"] in [
             AttestationStatus.APPROVED,
             AttestationStatus.REJECTED,
@@ -760,3 +748,49 @@ class TestContinuousAuditingService:
         with mock.patch("auditor.requests.get", side_effect=Exception("connection refused")):
             result = asyncio.get_event_loop().run_until_complete(svc._fetch_unverified_evidence())
             assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Coverage Boost: main() and run_continuous_service() (L668-711)
+# ---------------------------------------------------------------------------
+
+from auditor import main, run_continuous_service
+
+
+class TestMainFunction:
+    """Cover the main() example usage function (L668-702)."""
+
+    def test_main_success(self):
+        """main() calls audit_evidence and prints results."""
+        fake_result = {
+            "evidence_id": "ev-001",
+            "verdict": {"status": "VERIFIED", "confidence": 0.95, "approvals": 3},
+            "jury": {"attestation_status": "APPROVED", "confidence_score": 0.9, "reasoning": "ok"},
+            "entropy": {"attestation_status": "APPROVED", "confidence_score": 0.8, "reasoning": "ok"},
+            "escrow": {"attestation_status": "APPROVED", "confidence_score": 1.0, "reasoning": "ok"},
+        }
+        with mock.patch.object(ParallelAuditor, "audit_evidence", new_callable=mock.AsyncMock, return_value=fake_result):
+            asyncio.get_event_loop().run_until_complete(main())
+
+    def test_main_exception(self):
+        """main() catches audit_evidence exceptions and prints error."""
+        with mock.patch.object(ParallelAuditor, "audit_evidence", new_callable=mock.AsyncMock, side_effect=Exception("audit failed")):
+            # Should NOT raise — exception is caught inside main()
+            asyncio.get_event_loop().run_until_complete(main())
+
+
+class TestRunContinuousService:
+    """Cover run_continuous_service() (L704-711)."""
+
+    def test_run_continuous_normal(self):
+        """run_continuous_service creates ContinuousAuditingService and calls start()."""
+        with mock.patch.object(ContinuousAuditingService, "start", new_callable=mock.AsyncMock, return_value=None):
+            asyncio.get_event_loop().run_until_complete(run_continuous_service())
+
+    def test_run_continuous_keyboard_interrupt(self):
+        """run_continuous_service catches KeyboardInterrupt and calls stop()."""
+        with mock.patch.object(ContinuousAuditingService, "start", new_callable=mock.AsyncMock, side_effect=KeyboardInterrupt):
+            with mock.patch.object(ContinuousAuditingService, "stop") as mock_stop:
+                asyncio.get_event_loop().run_until_complete(run_continuous_service())
+                mock_stop.assert_called_once()
+

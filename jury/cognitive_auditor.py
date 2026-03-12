@@ -535,6 +535,28 @@ class CognitiveAuditor:
         
         return False, AnomalyType.NONE, 0.0
     
+    @staticmethod
+    def _compute_risk_level(
+        intent: SemanticIntent,
+        violations: List[APERuleMatch],
+    ) -> str:
+        """Compute risk level from intent + violations for dynamic pool sizing."""
+        # Critical violations → CRITICAL
+        critical = [v for v in violations if v.severity == "CRITICAL"]
+        if critical:
+            return "CRITICAL"
+        # Any violations + high-risk category → HIGH
+        if violations and intent.risk_category in ("FINANCIAL", "INFRASTRUCTURE"):
+            return "HIGH"
+        # Any violations → HIGH
+        if violations:
+            return "HIGH"
+        # High-risk category without violations → MEDIUM
+        if intent.risk_category in ("FINANCIAL", "INFRASTRUCTURE"):
+            return "MEDIUM"
+        # Low-risk → LOW
+        return "LOW"
+
     async def _get_jury_votes(
         self,
         transaction_id: str,
@@ -546,33 +568,38 @@ class CognitiveAuditor:
         """
         Get votes from multiple juror agents.
         
-        Uses real multi-model LLM calls (GPT-4, Claude, Gemini) via llm_juror.py.
+        Uses JuryPoolManager-driven multi-model LLM calls via llm_juror.py.
+        Pool size is dynamically determined by the computed risk level.
         Falls back to rule-based deterministic voting if LLM is unavailable.
         """
         try:
             from llm_juror import MultiModelJury, LLMJurorVote
             
+            risk_level = self._compute_risk_level(intent, violations)
             jury = MultiModelJury(tenant_id=self.tenant_id if hasattr(self, 'tenant_id') else '')
             llm_votes: List[LLMJurorVote] = await jury.get_votes(
                 agent_id=agent_id,
                 tool_id=intent.primary_action,
                 intent=intent,
                 violations=violations,
+                risk_level=risk_level,
             )
+            
+            # Build juror lookup for weight_boost resolution
+            juror_lookup = {j.juror_id: j for j in jury.jurors}
             
             # Convert LLMJurorVote to JurorVote for the existing consensus pipeline
             votes = []
             for llm_vote in llm_votes:
+                matched_juror = juror_lookup.get(llm_vote.juror_id)
+                weight_boost = getattr(matched_juror, 'weight_boost', 1.0) if matched_juror else 1.0
                 votes.append(JurorVote(
                     juror_id=llm_vote.juror_id,
                     trust_score=llm_vote.confidence,
                     vote=llm_vote.vote,
                     confidence=llm_vote.confidence,
                     reasoning=llm_vote.reasoning,
-                    weight=llm_vote.confidence * llm_vote.confidence * getattr(
-                        next((j for j in jury.jurors if j.juror_id == llm_vote.juror_id), None),
-                        'weight_boost', 1.0
-                    ),
+                    weight=llm_vote.confidence * llm_vote.confidence * weight_boost,
                 ))
             return votes
             

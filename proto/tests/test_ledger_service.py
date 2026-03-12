@@ -86,5 +86,36 @@ class TestComputeHash(unittest.TestCase):
         self.assertNotEqual(h1, h2)
 
 
+class TestVerifyChainIntegrity(unittest.TestCase):
+    """Tests for LedgerServiceImpl.verify_chain_integrity (lines 117-140)."""
+
+    def setUp(self):
+        self.svc = LedgerServiceImpl()
+        self.ctx = MagicMock()
+
+    def test_empty_chain_is_valid(self):
+        self.assertTrue(self.svc.verify_chain_integrity("no-such-agent"))
+
+    def test_valid_chain_passes(self):
+        for i in range(3):
+            entry = LedgerEntry(
+                turn_id=f"t{i}", agent_id="a1", binary_hash=f"bh{i}",
+                plan_id=f"p{i}", status=i, intent_hash="", actual_hash=""
+            )
+            self.svc.RecordEntry(entry, self.ctx)
+        self.assertTrue(self.svc.verify_chain_integrity("a1"))
+
+    def test_tampered_chain_fails(self):
+        for i in range(3):
+            entry = LedgerEntry(
+                turn_id=f"t{i}", agent_id="a1", binary_hash=f"bh{i}",
+                plan_id=f"p{i}", status=i, intent_hash="", actual_hash=""
+            )
+            self.svc.RecordEntry(entry, self.ctx)
+        # Tamper with the middle block's hash
+        self.svc._chains["a1"][1]["block_hash"] = "TAMPERED"
+        self.assertFalse(self.svc.verify_chain_integrity("a1"))
+
+
 if __name__ == "__main__":
     unittest.main()

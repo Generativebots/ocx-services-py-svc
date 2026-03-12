@@ -653,3 +653,322 @@ class TestGetActivityFound:
         )
         assert resp.status_code == 200
         assert resp.json()["activity_id"] == "act-1"
+
+
+# =============================================================================
+# Deploy Activity Endpoint (lines 507-575)
+# =============================================================================
+
+class TestDeployActivity:
+    def test_cannot_deploy(self, client, mock_db):
+        _, cursor = mock_db
+        cursor.fetchone.return_value = {"can_deploy": False}
+        resp = client.post(
+            "/api/v1/activities/act-1/deploy",
+            json={
+                "environment": "PROD",
+                "tenant_id": "t-1",
+                "deployed_by": "admin",
+            },
+        )
+        assert resp.status_code == 400
+        assert "cannot be deployed" in resp.json()["detail"]
+
+    def test_already_deployed(self, client, mock_db):
+        _, cursor = mock_db
+        cursor.fetchone.side_effect = [
+            {"can_deploy": True},  # can_deploy check
+            {"deployment_id": "dep-old"},  # existing deployment
+        ]
+        resp = client.post(
+            "/api/v1/activities/act-1/deploy",
+            json={
+                "environment": "PROD",
+                "tenant_id": "t-1",
+                "deployed_by": "admin",
+            },
+        )
+        assert resp.status_code == 400
+        assert "already deployed" in resp.json()["detail"]
+
+    def test_deploy_success(self, client, mock_db):
+        _, cursor = mock_db
+        now = datetime.now(timezone.utc)
+        cursor.fetchone.side_effect = [
+            {"can_deploy": True},  # can_deploy check
+            None,  # no existing deployment
+            {  # INSERT RETURNING
+                "deployment_id": "dep-1",
+                "activity_id": "act-1",
+                "environment": "PROD",
+                "tenant_id": "t-1",
+                "effective_from": now,
+                "effective_until": None,
+                "deployed_by": "admin",
+                "deployed_at": now,
+            },
+            {"deployment_count": 1},  # first deployment
+        ]
+        resp = client.post(
+            "/api/v1/activities/act-1/deploy",
+            json={
+                "environment": "PROD",
+                "tenant_id": "t-1",
+                "deployed_by": "admin",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["deployment_id"] == "dep-1"
+
+
+# =============================================================================
+# Rollback Deployment Endpoint (lines 613-655)
+# =============================================================================
+
+class TestRollbackDeployment:
+    def test_not_found(self, client, mock_db):
+        _, cursor = mock_db
+        cursor.fetchone.return_value = None
+        resp = client.post(
+            "/api/v1/activities/act-1/rollback?deployment_id=dep-1",
+            json={"rollback_reason": "bug", "rolled_back_by": "admin"},
+        )
+        assert resp.status_code == 404
+
+    def test_rollback_with_previous(self, client, mock_db):
+        _, cursor = mock_db
+        now = datetime.now(timezone.utc)
+        cursor.fetchone.side_effect = [
+            {  # current deployment
+                "deployment_id": "dep-2",
+                "activity_id": "act-1",
+                "environment": "PROD",
+                "tenant_id": "t-1",
+                "deployed_at": now,
+            },
+            {  # previous deployment
+                "deployment_id": "dep-1",
+            },
+        ]
+        resp = client.post(
+            "/api/v1/activities/act-1/rollback?deployment_id=dep-2",
+            json={"rollback_reason": "bug found", "rolled_back_by": "admin"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["rolled_back_to"] == "dep-1"
+
+    def test_rollback_without_previous(self, client, mock_db):
+        _, cursor = mock_db
+        now = datetime.now(timezone.utc)
+        cursor.fetchone.side_effect = [
+            {  # current deployment
+                "deployment_id": "dep-1",
+                "activity_id": "act-1",
+                "environment": "PROD",
+                "tenant_id": "t-1",
+                "deployed_at": now,
+            },
+            None,  # no previous deployment
+        ]
+        resp = client.post(
+            "/api/v1/activities/act-1/rollback?deployment_id=dep-1",
+            json={"rollback_reason": "emergency", "rolled_back_by": "admin"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["rolled_back_to"] is None
+
+
+# =============================================================================
+# List Activities with filters (lines 278-291)
+# =============================================================================
+
+class TestListActivitiesFilters:
+    def test_with_status_filter(self, client, mock_db):
+        _, cursor = mock_db
+        cursor.fetchall.return_value = []
+        resp = client.get(
+            "/api/v1/activities?status=DRAFT",
+            headers={"X-Tenant-ID": "t-1"},
+        )
+        assert resp.status_code == 200
+
+    def test_with_owner_filter(self, client, mock_db):
+        _, cursor = mock_db
+        cursor.fetchall.return_value = []
+        resp = client.get(
+            "/api/v1/activities?owner=Finance",
+            headers={"X-Tenant-ID": "t-1"},
+        )
+        assert resp.status_code == 200
+
+    def test_with_category_filter(self, client, mock_db):
+        _, cursor = mock_db
+        cursor.fetchall.return_value = []
+        resp = client.get(
+            "/api/v1/activities?category=procurement",
+            headers={"X-Tenant-ID": "t-1"},
+        )
+        assert resp.status_code == 200
+
+    def test_with_department_header(self, client, mock_db):
+        _, cursor = mock_db
+        cursor.fetchall.return_value = []
+        resp = client.get(
+            "/api/v1/activities",
+            headers={"X-Tenant-ID": "t-1", "X-Department": "Finance"},
+        )
+        assert resp.status_code == 200
+
+
+# =============================================================================
+# Get Latest Activity (lines 304-323)
+# =============================================================================
+
+class TestGetLatestActivity:
+    def test_missing_tenant(self, client):
+        resp = client.get("/api/v1/activities/latest/MyActivity")
+        assert resp.status_code == 401
+
+    def test_not_found(self, client, mock_db):
+        _, cursor = mock_db
+        cursor.fetchone.return_value = None
+        resp = client.get(
+            "/api/v1/activities/latest/NoSuchActivity",
+            headers={"X-Tenant-ID": "t-1"},
+        )
+        assert resp.status_code == 404
+
+    def test_found_wrong_tenant(self, client, mock_db):
+        _, cursor = mock_db
+        cursor.fetchone.side_effect = [
+            {"activity_id": "act-99"},  # get_latest_version
+            None,  # tenant check fails
+        ]
+        resp = client.get(
+            "/api/v1/activities/latest/SharedActivity",
+            headers={"X-Tenant-ID": "t-1"},
+        )
+        assert resp.status_code == 404
+
+    def test_success(self, client, mock_db):
+        _, cursor = mock_db
+        now = datetime.now(timezone.utc)
+        cursor.fetchone.side_effect = [
+            {"activity_id": "act-1"},  # get_latest_version
+            {  # full activity
+                "activity_id": "act-1",
+                "name": "MyActivity",
+                "version": "2.0.0",
+                "status": "DEPLOYED",
+                "ebcl_source": "source",
+                "owner": "System",
+                "authority": "Policy v1",
+                "created_by": "admin",
+                "created_at": now,
+                "approved_by": "cfo",
+                "approved_at": now,
+                "deployed_by": "ops",
+                "deployed_at": now,
+                "hash": "xyz",
+                "description": "Latest version",
+                "tags": ["v2"],
+                "category": "finance",
+                "tenant_id": "t-1",
+            },
+        ]
+        resp = client.get(
+            "/api/v1/activities/latest/MyActivity",
+            headers={"X-Tenant-ID": "t-1"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["version"] == "2.0.0"
+
+
+# =============================================================================
+# Update Activity — tags & category (lines 348-353)
+# =============================================================================
+
+class TestUpdateActivityFields:
+    def test_update_tags(self, client, mock_db):
+        _, cursor = mock_db
+        now = datetime.now(timezone.utc)
+        cursor.fetchone.return_value = {
+            "activity_id": "act-1", "name": "Test", "version": "1.0.0",
+            "status": "DRAFT", "ebcl_source": "source", "owner": "System",
+            "authority": "Policy v1", "created_by": "admin", "created_at": now,
+            "approved_by": None, "approved_at": None, "deployed_by": None,
+            "deployed_at": None, "hash": "abc", "description": None,
+            "tags": ["new-tag"], "category": None, "tenant_id": "t-1",
+        }
+        resp = client.patch(
+            "/api/v1/activities/act-1",
+            json={"tags": ["new-tag"]},
+            headers={"X-Tenant-ID": "t-1"},
+        )
+        assert resp.status_code == 200
+
+    def test_update_category(self, client, mock_db):
+        _, cursor = mock_db
+        now = datetime.now(timezone.utc)
+        cursor.fetchone.return_value = {
+            "activity_id": "act-1", "name": "Test", "version": "1.0.0",
+            "status": "DRAFT", "ebcl_source": "source", "owner": "System",
+            "authority": "Policy v1", "created_by": "admin", "created_at": now,
+            "approved_by": None, "approved_at": None, "deployed_by": None,
+            "deployed_at": None, "hash": "abc", "description": None,
+            "tags": None, "category": "finance", "tenant_id": "t-1",
+        }
+        resp = client.patch(
+            "/api/v1/activities/act-1",
+            json={"category": "finance"},
+            headers={"X-Tenant-ID": "t-1"},
+        )
+        assert resp.status_code == 200
+
+
+# =============================================================================
+# Version History — success path (lines 804-813)
+# =============================================================================
+
+class TestVersionHistorySuccess:
+    def test_success(self, client, mock_db):
+        _, cursor = mock_db
+        cursor.fetchone.return_value = {"name": "MyActivity"}
+        cursor.fetchall.return_value = [
+            {
+                "activity_id": "act-1", "name": "MyActivity", "version": "1.0.0",
+                "change_summary": "Initial", "breaking_changes": False,
+                "version_type": "MAJOR",
+            },
+            {
+                "activity_id": "act-2", "name": "MyActivity", "version": "1.1.0",
+                "change_summary": "Minor fix", "breaking_changes": False,
+                "version_type": "MINOR",
+            },
+        ]
+        resp = client.get(
+            "/api/v1/activities/act-1/versions",
+            headers={"X-Tenant-ID": "t-1"},
+        )
+        assert resp.status_code == 200
+        assert len(resp.json()) == 2
+
+
+# =============================================================================
+# IntegrityError non-unique path (line 233)
+# =============================================================================
+
+class TestCreateIntegrityErrorOther:
+    def test_non_unique_integrity_error(self, client, mock_db):
+        import psycopg2
+        _, cursor = mock_db
+        cursor.execute.side_effect = psycopg2.IntegrityError("foreign key constraint violated")
+        resp = client.post(
+            "/api/v1/activities",
+            json={
+                "name": "Test", "version": "1.0.0", "ebcl_source": "source",
+                "owner": "System", "authority": "Policy v1", "created_by": "admin",
+            },
+            headers={"X-Tenant-ID": "t-1"},
+        )
+        assert resp.status_code == 400

@@ -343,42 +343,41 @@ class GeminiJuror(LLMJurorClient):
 # ============================================================================
 
 class MultiModelJury:
-    """Coordinates 3 LLM jurors for multi-agent consensus voting.
+    """Coordinates N LLM jurors via JuryPoolManager for multi-agent consensus voting.
     
-    Loads API keys per-tenant from governance config (Supabase).
+    Loads model registry and API keys per-tenant from governance config (Supabase).
+    Supports dynamic pool sizing based on risk level, pool rotation for anti-collusion,
+    and optional VRF-based juror selection for high-security tenants.
     Falls back to env vars, then to rule-based deterministic voting.
     """
 
     def __init__(self, tenant_id: str = ""):
         self.tenant_id = tenant_id
         
-        # Load tenant-specific keys from governance config
-        cfg = self._load_tenant_config(tenant_id)
-        openai_key = cfg.get("openai_api_key", "")
-        anthropic_key = cfg.get("anthropic_api_key", "")
-        gemini_key = cfg.get("gemini_api_key", "")
-        priority = cfg.get("default_juror_priority", "openai")
+        # Initialize pool manager for dynamic juror selection
+        from jury_pool_manager import JuryPoolManager
+        self.pool_manager = JuryPoolManager(tenant_id)
         
-        # Apply 1.5x weight boost to the priority juror
-        self.jurors: List[LLMJurorClient] = [
-            OpenAIJuror(
-                api_key=openai_key,
-                weight_boost=1.5 if priority == "openai" else 1.0,
-            ),
-            AnthropicJuror(
-                api_key=anthropic_key,
-                weight_boost=1.5 if priority == "anthropic" else 1.0,
-            ),
-            GeminiJuror(
-                api_key=gemini_key,
-                weight_boost=1.5 if priority == "gemini" else 1.0,
-            ),
-        ]
-        available = sum(1 for j in self.jurors if j.available)
+        # Maintain backward-compatible jurors property (default pool)
+        self._default_jurors = self.pool_manager.select_jurors(risk_level="MEDIUM")
+        
+        available = sum(1 for j in self._default_jurors if j.available)
         logger.info(
-            f"MultiModelJury initialized: {available}/3 LLM jurors available, "
-            f"tenant={tenant_id or 'platform'}, priority={priority}"
+            f"MultiModelJury initialized: {available}/{len(self._default_jurors)} "
+            f"LLM jurors available, tenant={tenant_id or 'platform'}, "
+            f"pool_size={len(self._default_jurors)}, "
+            f"vrf={self.pool_manager.pool_config.vrf_enabled}"
         )
+    
+    @property
+    def jurors(self) -> List[LLMJurorClient]:
+        """Backward-compatible access to current default juror pool."""
+        return self._default_jurors
+    
+    @property
+    def pool_status(self) -> Dict[str, Any]:
+        """Current pool state for API/UI display."""
+        return self.pool_manager.get_pool_status()
     
     @staticmethod
     def _load_tenant_config(tenant_id: str) -> Dict[str, Any]:
@@ -398,22 +397,34 @@ class MultiModelJury:
         tool_id: str,
         intent: Any,
         violations: List,
+        risk_level: str = "MEDIUM",
     ) -> List[LLMJurorVote]:
-        """Get votes from all 3 jurors in parallel."""
+        """Get votes from N jurors in parallel, pool sized by risk level.
+        
+        Args:
+            agent_id: The agent being evaluated
+            tool_id: The tool/action being requested
+            intent: Extracted semantic intent
+            violations: List of policy violations found
+            risk_level: Risk level for dynamic pool sizing (LOW/MEDIUM/HIGH/CRITICAL)
+        """
+        # Select jurors dynamically based on risk level
+        jurors = self.pool_manager.select_jurors(risk_level)
+        
         tasks = [
             juror.evaluate(agent_id, tool_id, intent, violations)
-            for juror in self.jurors
+            for juror in jurors
         ]
         votes = await asyncio.gather(*tasks, return_exceptions=True)
 
         results = []
         for i, vote in enumerate(votes):
             if isinstance(vote, Exception):
-                logger.warning(f"Juror {self.jurors[i].juror_id} raised exception: {vote}")
+                logger.warning(f"Juror {jurors[i].juror_id} raised exception: {vote}")
                 # Create fallback vote for exception cases
                 results.append(LLMJurorVote(
-                    juror_id=self.jurors[i].juror_id,
-                    model_name=f"{self.jurors[i].model_name}:error",
+                    juror_id=jurors[i].juror_id,
+                    model_name=f"{jurors[i].model_name}:error",
                     vote="ABSTAIN",
                     confidence=0.0,
                     reasoning=f"Exception: {vote}",
