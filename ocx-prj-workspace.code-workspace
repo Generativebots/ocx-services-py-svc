@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"name": "ocx-services-py-svc",
+			"path": "."
+		},
+		{
+			"name": "ocx-backend-go-svc",
+			"path": "../ocx-backend-go-svc"
+		},
+		{
+			"name": "ocx-frontend-nxtjs-ux",
+			"path": "../ocx-frontend-nxtjs-ux"
+		}
+	]
+}
