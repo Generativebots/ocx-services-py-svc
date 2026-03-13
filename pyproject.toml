@@ -4,23 +4,28 @@ version = "0.1.0"
 description = "OCX Python Microservices — Monorepo"
 requires-python = ">=3.11"
 
-# NOTE: This is a monorepo — each service has its own sys.path.
-# Run tests PER SERVICE, not from root:
-#
-#   cd shadow-sop   && python3 -m pytest tests/ -q
-#   cd trust-registry && python3 -m pytest tests/ -q
-#   cd ape           && cd .. && python3 -m pytest ape/tests/ -q
-#   ... etc.
-#
-# Or run all services at once via the script:
-#   ./scripts/run_all_tests.sh
+# Tests are centralized in tests/ with type-based subdirectories.
+# Run:
+#   pytest tests/unit/ -v           # Unit tests only
+#   pytest tests/ -m integration    # Integration tests
+#   pytest tests/ -m "not slow"     # Skip slow tests
+#   pytest tests/                   # All tests (except integration/performance)
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "--tb=short -q"
+addopts = "--tb=short -q -m 'not integration and not performance'"
 asyncio_mode = "strict"
+markers = [
+    "unit: Fast unit tests with no external dependencies",
+    "integration: Tests requiring database or network access",
+    "regression: Bug-fix regression tests",
+    "performance: Load and benchmark tests",
+    "dataflow: End-to-end data pipeline tests",
+    "slow: Tests that take a long time to run",
+]
 
 [tool.coverage.run]
 omit = [
