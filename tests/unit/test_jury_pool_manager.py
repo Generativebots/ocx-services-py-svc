@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 
 import sys
 import pathlib
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent / "jury"))
 
 from jury_pool_manager import (
     JurorModelEntry,

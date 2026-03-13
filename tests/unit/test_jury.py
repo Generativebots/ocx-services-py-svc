@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 from enum import Enum
 
 import sys, pathlib
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent / "jury"))
 
 from cognitive_auditor import (
     CognitiveVerdict, AnomalyType, SemanticIntent,

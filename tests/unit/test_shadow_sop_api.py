@@ -37,20 +37,15 @@ _fake_shadow_executor_mod.ShadowVerdict = mock.MagicMock()
 sys.modules["shadow_executor"] = _fake_shadow_executor_mod
 
 # Import real rlhc module (it has ShadowSOPRLHC and CorrectionType)
-_rlhc_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "rlhc.py",
-)
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_rlhc_path = os.path.join(_ROOT, "shadow-sop", "rlhc.py")
 _rlhc_spec = importlib.util.spec_from_file_location("rlhc", _rlhc_path)
 rlhc_mod = importlib.util.module_from_spec(_rlhc_spec)
 sys.modules["rlhc"] = rlhc_mod
 _rlhc_spec.loader.exec_module(rlhc_mod)
 
 # Now import the actual api module
-_api_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "api.py",
-)
+_api_path = os.path.join(_ROOT, "shadow-sop", "api.py")
 _api_spec = importlib.util.spec_from_file_location("shadow_sop_api", _api_path)
 api_mod = importlib.util.module_from_spec(_api_spec)
 sys.modules["shadow_sop_api"] = api_mod

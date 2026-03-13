@@ -39,10 +39,8 @@ _fake_pydantic = mock.MagicMock()
 _fake_pydantic.BaseModel = type("BaseModel", (), {})
 sys.modules["pydantic"] = sys.modules.get("pydantic") or _fake_pydantic
 
-_rlhc_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "rlhc.py",
-)
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_rlhc_path = os.path.join(_ROOT, "shadow-sop", "rlhc.py")
 _spec = importlib.util.spec_from_file_location("shadow_sop_rlhc", _rlhc_path)
 rlhc_mod = importlib.util.module_from_spec(_spec)
 sys.modules["shadow_sop_rlhc"] = rlhc_mod
@@ -555,10 +553,7 @@ sys.modules["psycopg2.pool"] = _fake_pg2.pool
 sys.modules["psycopg2.extras"] = _fake_pg2.extras
 _fake_pg2.extras.RealDictCursor = "RealDictCursor"
 
-_rlhc_routes_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "rlhc.py",
-)
+_rlhc_routes_path = os.path.join(_ROOT, "shadow-sop", "rlhc.py")
 _routes_spec = importlib.util.spec_from_file_location("rlhc_routes", _rlhc_routes_path)
 _routes_mod = importlib.util.module_from_spec(_routes_spec)
 sys.modules["rlhc_routes"] = _routes_mod

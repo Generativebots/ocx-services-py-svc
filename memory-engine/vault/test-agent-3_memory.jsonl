@@ -11,3 +11,6 @@
 {"timestamp": "2026-03-12T17:38:30.278982+00:00", "agent_id": "test-agent-3", "insight": "Tagged insight", "outcome": "BLOCKED", "tags": ["retry", "error"]}
 {"timestamp": "2026-03-12T17:38:54.486966+00:00", "agent_id": "test-agent-3", "insight": "Tagged insight", "outcome": "BLOCKED", "tags": ["retry", "error"]}
 {"timestamp": "2026-03-12T17:39:22.690433+00:00", "agent_id": "test-agent-3", "insight": "Tagged insight", "outcome": "BLOCKED", "tags": ["retry", "error"]}
+{"timestamp": "2026-03-13T13:34:18.047792+00:00", "agent_id": "test-agent-3", "insight": "Tagged insight", "outcome": "BLOCKED", "tags": ["retry", "error"]}
+{"timestamp": "2026-03-13T13:34:42.541518+00:00", "agent_id": "test-agent-3", "insight": "Tagged insight", "outcome": "BLOCKED", "tags": ["retry", "error"]}
+{"timestamp": "2026-03-13T13:34:52.336404+00:00", "agent_id": "test-agent-3", "insight": "Tagged insight", "outcome": "BLOCKED", "tags": ["retry", "error"]}

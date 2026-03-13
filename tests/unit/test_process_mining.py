@@ -7,7 +7,8 @@ import sys
 import pytest
 from datetime import datetime, timezone, timedelta
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(_ROOT, "process-mining"))
 
 from miner import ProcessMiner, Trace, Activity, DiscoveredProcess
 from conformance import ConformanceChecker, ConformanceResult

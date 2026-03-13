@@ -13,7 +13,8 @@ from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone
 
 # Ensure activity-registry is importable
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(_ROOT, "activity-registry"))
 
 from api import (
     app,

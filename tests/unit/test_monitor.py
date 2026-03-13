@@ -17,9 +17,11 @@ import pytest
 # Stub redis
 _fake_redis = types.ModuleType("redis")
 _fake_redis.from_url = MagicMock(return_value=MagicMock())
+_fake_redis.Redis = type("Redis", (), {})  # type annotation used by other modules
 sys.modules.setdefault("redis", _fake_redis)
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(_ROOT, "monitor"))
 
 from fastapi.testclient import TestClient
 import main as monitor_main

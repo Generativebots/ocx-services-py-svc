@@ -14,7 +14,8 @@ from typing import Any
 if not hasattr(builtins, "Any"):
     builtins.Any = Any  # type: ignore[attr-defined]
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(_ROOT, "trust-registry"))
 
 from jury import Jury
 from correction_agent import CorrectionAgent

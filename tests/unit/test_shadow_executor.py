@@ -3,7 +3,8 @@ import sys, os, unittest, asyncio, json
 from unittest.mock import MagicMock, patch, AsyncMock
 from datetime import datetime, timezone
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(_ROOT, "shadow-sop"))
 
 from shadow_executor import ShadowExecutor, ShadowVerdict, ShadowResult, ShadowMetrics
 

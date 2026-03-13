@@ -17,10 +17,8 @@ _fake_gov_mod.get_tenant_governance_config = mock.MagicMock(return_value={
 sys.modules.setdefault("config", mock.MagicMock())
 sys.modules["config.governance_config"] = _fake_gov_mod
 
-_observer_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "slack_observer.py",
-)
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_observer_path = os.path.join(_ROOT, "shadow-sop", "slack_observer.py")
 _spec = importlib.util.spec_from_file_location("slack_observer", _observer_path)
 slack_observer = importlib.util.module_from_spec(_spec)
 sys.modules["slack_observer"] = slack_observer
